@@ -50,12 +50,33 @@ program is re-run from the beginning with the longer input: its earlier output
 is reproduced byte for byte, only the new tail is printed, and the window
 behaves like an ordinary console. Press **Ctrl+Z** for end-of-input.
 
+### Windows and console headers
+
+libc++ has no Windows SDK, but most Windows-flavoured console code only wants a
+handful of things, and those are provided for real in the sysroot:
+
+* `<windows.h>` — types, `Sleep`, `GetTickCount`, `GetLocalTime`,
+  `GetStdHandle`, `SetConsoleTextAttribute`, `SetConsoleCursorPosition`,
+  `MessageBoxA`, `Beep`, `ExitProcess`. The console understands ANSI escapes,
+  so console colours and cursor movement genuinely work.
+* `<conio.h>` — `getch`, `getche`, `kbhit`, `clrscr`, `gotoxy`, `textcolor`,
+  `textbackground`.
+* `<tchar.h>`, `<io.h>`, `<direct.h>`, `<process.h>`.
+* `<winsock2.h>`, `<ws2tcpip.h>`, `<wininet.h>`, `<winhttp.h>` — **declarations
+  only.** WASI has no sockets and a web page cannot open raw TCP, so these
+  compile (with a `#warning`) and every call returns a failure code rather than
+  pretending to connect.
+
 ### Known limits of this toolchain
 
 * **No exceptions.** The sysroot's `libc++abi.a` was built with
   `-fno-exceptions`, so `try`/`throw` fails at link time.
-* **No threads** — `<thread>`, `<mutex>`, `<future>` and `<filesystem>` are not
-  usable, and are left out of `<bits/stdc++.h>`.
+* **No threads** — `<thread>` compiles but traps at runtime; `<mutex>` works
+  as a no-op. They are left out of `<bits/stdc++.h>`.
+* **No `<regex>`** — libc++'s regex needs atomics that this clang's wasm
+  backend cannot select.
+* `<chrono>`, `time()` and `clock()` **do** work: `clock_time_get` is
+  implemented in the vendored harness.
 * Programs are re-run on each input line, so a program whose output depends on
   the clock or on `rand()` without `srand` may print different values than a
   single continuous run would.
@@ -99,9 +120,11 @@ for f in clang lld memfs sysroot.tar; do
 done
 ```
 
-Two small, commented changes were made to `vendor/wasm-clang/shared.js`: a
-`onStdinStarved` hook in `MemFS.host_read`, and one line in `App.run` so our
-own control-flow signal unwinds quietly. Both are marked `cbweb:`.
+Three small, commented changes were made to `vendor/wasm-clang/shared.js`: an
+`onStdinStarved` hook in `MemFS.host_read`, one line in `App.run` so our own
+control-flow signal unwinds quietly, and an implementation of
+`clock_time_get`/`clock_res_get` (upstream throws `NotImplemented`, which is
+what made `<chrono>` and `time()` fail). All are marked `cbweb:`.
 
 ## Layout
 
@@ -116,6 +139,8 @@ js/toolchain.js            main-thread proxy for the compiler
 js/toolchain-worker.js     clang + wasm-ld + program execution
 js/console.js              the floating program console
 js/files.js                real Open/Save through the File System Access API
+js/features.js             the rest of the menu commands and the plugins
+js/sdk-headers.js          <windows.h>, <conio.h> and friends for the sysroot
 js/cpp.js                  stepping interpreter, used by the debugger
 tools/gen-menus.js         XRC -> js/menudata.js
 tools/test-cpp.js          tests for the stepping interpreter
@@ -161,5 +186,19 @@ Makefile for the open sources).
 debugging windows: call stack, CPU registers, disassembly, memory dump,
 running threads, watches and breakpoints, plus the Information dialogs.
 
-184 of the 230 menu commands are live; the rest are the ones that need a
+**Right-click menu** — the editor's context menu is the desktop one: open the
+`#include` under the caret, find occurrences of the selection, run to cursor,
+toggle breakpoint, Edit / Insert-Refactor / Bookmarks / Aligner / DoxyBlocks /
+Browse Tracker / Locate in submenus, Add Todo item, and Format use AStyle.
+Insert/Refactor really renames a symbol across files, extracts a selection into
+a function, and inserts include guards and file headers; the Aligner aligns the
+selected lines on `=`, `,`, `:` or `//`.
+
+**Settings that do something** — *Settings → Editor* drives tab size, line
+numbers, indentation guides, whitespace display, word wrap, caret-line
+highlight and the right margin. *Project → Build options* feeds the real clang
+command line: the C++ standard (98/11/14/17), optimisation level per target,
+`#define`s and the warning flags.
+
+The rest are the ones that need a
 desktop toolchain (attach to process, Fortran, wxSmith).

@@ -9,6 +9,7 @@
 'use strict';
 
 importScripts('../vendor/wasm-clang/shared.js');
+importScripts('sdk-headers.js');
 
 const BASE = '../vendor/wasm-clang/';
 const CACHE = 'cbweb-toolchain-v1';
@@ -122,6 +123,8 @@ function init() {
         sink = () => {};
         await api.ready;
         api.memfs.addFile('include/bits/stdc++.h', STDCXX_HEADER_TEXT);
+        // the Windows/console compatibility headers
+        for (const path in SDK_HEADERS) api.memfs.addFile(path, SDK_HEADERS[path]);
         sink = prev;
         return api;
     })();
@@ -164,8 +167,12 @@ async function build(fileName, source, options) {
         '-std=' + (options.std || 'c++17'),
         options.opt || '-O0',
         '-Wall',
-        '-o', obj, '-x', 'c++', fileName,
-    ]);
+    ].concat(options.warnings || []));
+    // Note: do not define _LIBCPP_HAS_NO_THREADS here.  This libc++ was built
+    // against an external thread API and rejects that macro outright.
+    for (const d of (options.defines || [])) args.push('-D' + d);
+    for (const inc of (options.includes || [])) args.push('-I', inc);
+    args.push('-o', obj, '-x', 'c++', fileName);
     const c = await capture(() => api.run(clang, 'clang', '-cc1', ...args));
     if (c.exit !== 0) return { ok: false, diagnostics: cleanDiagnostics(c.text) };
 
@@ -221,8 +228,11 @@ async function run(id, exeName, stdin, stopOnInput) {
     }
 
     // The harness echoes the command line before the run and adds a newline
-    // after it; neither belongs in the program's console output.
-    const output = stripAnsi(out).replace(/^>[^\n]*\n/, '').replace(/\n$/, '');
+    // after it; neither belongs in the program's console output.  ANSI escapes
+    // are kept: the console renders them, so <windows.h> colours work.
+    const output = stripAnsi(out.slice(0, out.indexOf('\n') + 1)).startsWith('>')
+        ? out.slice(out.indexOf('\n') + 1).replace(/\n$/, '')
+        : out.replace(/\n$/, '');
     return { output, exit, starved };
 }
 

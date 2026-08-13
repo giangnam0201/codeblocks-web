@@ -345,7 +345,7 @@ class App {
 
     const wasi_unstable = getImportObject(this, [
       'proc_exit', 'environ_sizes_get', 'environ_get', 'args_sizes_get',
-      'args_get', 'random_get', 'clock_time_get', 'poll_oneoff'
+      'args_get', 'random_get', 'clock_time_get', 'clock_res_get', 'poll_oneoff'
     ]);
 
     // Fill in some WASI implementations from memfs.
@@ -454,8 +454,22 @@ class App {
     }
   }
 
+  // cbweb: implemented, so <chrono>, time() and clock() work.
+  // clock ids: 0 realtime, 1 monotonic, 2/3 cpu time.  Nanoseconds, u64.
   clock_time_get(clock_id, precision, time_out) {
-    throw new NotImplemented('wasi_unstable', 'clock_time_get');
+    this.mem.check();
+    const ms = clock_id === 0 ? Date.now() : performance.now();
+    const ns = BigInt(Math.round(ms * 1e6));
+    const view = new DataView(this.mem.buffer);
+    view.setBigUint64(time_out, ns, true);
+    return ESUCCESS;
+  }
+
+  // cbweb: required by clock_getres(), which libc++ calls for steady_clock.
+  clock_res_get(clock_id, res_out) {
+    this.mem.check();
+    new DataView(this.mem.buffer).setBigUint64(res_out, BigInt(1000), true);
+    return ESUCCESS;
   }
 
   poll_oneoff(in_ptr, out_ptr, nsubscriptions, nevents_out) {

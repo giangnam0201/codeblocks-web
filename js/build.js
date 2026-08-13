@@ -68,20 +68,30 @@ Build.doBuild = async function (options) {
     // single file in Code::Blocks (14.cpp -> 14.exe)
     const exeName = base + '.exe';
     const exe = `${binDir}${exeName}`;
-    const opt = target === 'Debug' ? '-O0' : '-O2';
-    const flags = target === 'Debug' ? '-Wall -g -O0' : '-Wall -O2';
+    const bo = App.buildOptions || {};
+    const opt = target === 'Debug' ? (bo.optDebug || '-O0') : (bo.optRelease || '-O2');
+    const std = bo.std || 'c++17';
+    const warnings = [bo.wall !== false ? '-Wall' : '', bo.wextra ? '-Wextra' : '',
+                      bo.pedantic ? '-pedantic' : ''].filter(Boolean);
+    const defines = (bo.defines || '').split(/\s+/).filter(Boolean);
+    const flags = [...warnings, target === 'Debug' ? '-g' : '', opt,
+                   ...defines.map(d => '-D' + d)].filter(Boolean).join(' ');
     const source = file.text();
 
     if (!Toolchain.loaded)
         Build.log('Loading the C++ toolchain (clang + libc++); this happens once...\n');
 
-    Build.log(`g++.exe ${flags} -std=c++17  -c ${App.projectPath}\\${file.name} -o ${objDir}${base}.o\n`);
+    Build.log(`g++.exe ${flags} -std=${std}  -c ${App.projectPath}\\${file.name} -o ${objDir}${base}.o\n`);
 
     let errorCount = 0, warningCount = 0, ok = false, built = null;
 
     try {
         if (Build.lastBuild && Build.lastBuild.id) Toolchain.release(Build.lastBuild.id);
-        built = await Toolchain.build(file.name, source, { opt, std: 'c++17' });
+        built = await Toolchain.build(file.name, source, {
+            opt, std,
+            defines,
+            warnings: warnings.filter(w => w !== '-Wall'),
+        });
         const raw = built.diagnostics || '';
         if (raw.trim()) Build.log(raw.replace(/\n?$/, '\n'), built.ok ? 'warn' : 'err');
 

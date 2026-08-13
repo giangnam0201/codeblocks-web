@@ -468,6 +468,21 @@ table.log-grid tr.selected td { background: #cce8ff; }
 /* the Occurrences highlighting plugin */
 .cb-occurrence { background: #d4e7c5; }
 
+/* Settings -> Editor: whitespace display and indentation guides */
+.cb-show-ws .CodeMirror-line { background-image: none; }
+.cb-show-ws .cm-tab {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='15'><path d='M2 8 H12 M9 5 L12 8 L9 11' stroke='%23c3c3c3' fill='none'/></svg>");
+    background-position: left center;
+    background-repeat: no-repeat;
+}
+.cb-indent-guides .CodeMirror-line {
+    background-image: repeating-linear-gradient(to right,
+        #e6e6e6 0, #e6e6e6 1px, transparent 1px, transparent calc(4ch));
+    background-position-x: 0;
+}
+.CodeMirror-ruler { border-left: 1px solid #c0c0c0; }
+.CodeMirror-activeline-background { background: #f4f4ff; }
+
 /* ---------------------------------------------------------- dialog windows */
 
 .cb-dialog-veil {

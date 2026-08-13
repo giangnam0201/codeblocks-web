@@ -116,6 +116,18 @@ App.openFile = function (name, text, project, activate) {
         App.updateStatusBar();
         Features.highlightOccurrences(f.cm);
     });
+    // the editor's right-click menu
+    f.cm.getWrapperElement().addEventListener('contextmenu', ev => {
+        ev.preventDefault();
+        Features.editorContextMenu(f.cm, ev);
+    });
+    // BrowseTracker keeps the jump history
+    f.cm.on('focus', () => {
+        App.browseHistory = App.browseHistory || [];
+        App.browseHistory.push({ key: f.key, line: f.cm.getCursor().line + 1 });
+        if (App.browseHistory.length > 50) App.browseHistory.shift();
+        App.browseIndex = App.browseHistory.length - 1;
+    });
     // left margin: click sets a breakpoint, Ctrl-click sets a bookmark
     f.cm.on('gutterClick', (cm, line, gutter, ev) => {
         if (gutter !== 'cb-margin-marker') return;
@@ -635,6 +647,8 @@ App.command = async function (id, extra) {
     const f = App.activeFile();
     const cm = f && f.cm;
 
+    if (typeof Features !== 'undefined' && Features.contextCommand(id, extra)) return;
+
     switch (id) {
         /* ---- File ---- */
         case 'idFileNewEmpty': {
@@ -804,8 +818,9 @@ App.command = async function (id, extra) {
         case 'idDebuggerWinCallStack': App.selectLogTab('callstack'); return;
 
         /* ---- Settings / Help ---- */
-        case 'idSettingsCompiler': return Dialogs.compilerSettings();
-        case 'idSettingsEnvironment': case 'idSettingsEditor':
+        case 'idSettingsCompiler': return Features.buildOptionsDialog();
+        case 'idSettingsEditor': return Features.editorSettingsDialog();
+        case 'idSettingsEnvironment':
         case 'idSettingsDebugger': case 'idSettingsScripting':
             return Dialogs.settingsStub(id);
         case 'idPluginsManagePlugins': return Dialogs.plugins();
@@ -1433,6 +1448,17 @@ function init() {
     App.logAppend('app', 'Scanning for compilers...\n');
     App.logAppend('debugger', 'Active debugger: GDB/CDB debugger : Default\n');
     App.startToolchain();
+
+    // adopt the settings features.js defines, then layer the saved ones on top
+    App.editorSettings = Features.editorSettings;
+    App.buildOptions = Features.buildOptions;
+    try {
+        const es = JSON.parse(localStorage.getItem('cbweb.editor') || 'null');
+        if (es) Object.assign(App.editorSettings, es);
+        const bs = JSON.parse(localStorage.getItem('cbweb.build') || 'null');
+        if (bs) Object.assign(App.buildOptions, bs);
+    } catch (e) { /* defaults are fine */ }
+    Features.applyEditorSettings();
 
     App.setTarget('Debug');
     App.updateStatusBar();

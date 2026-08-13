@@ -45,8 +45,61 @@ class ProgramConsole {
         this.render();
     }
 
+    /* Renders the buffer, interpreting the ANSI escapes a console understands:
+       colours and intensity (SGR), clear screen, and cursor home.  That is what
+       makes SetConsoleTextAttribute, textcolor() and clrscr() work. */
     render() {
-        this.screen.textContent = this.text + this.lineBuffer;
+        const text = this.text + this.lineBuffer;
+        this.screen.textContent = '';
+
+        const FG = ['#000000', '#aa0000', '#00aa00', '#aa5500',
+                    '#0000aa', '#aa00aa', '#00aaaa', '#c0c0c0'];
+        const FG_BRIGHT = ['#666666', '#ff5555', '#55ff55', '#ffff55',
+                           '#5555ff', '#ff55ff', '#55ffff', '#ffffff'];
+        const BG = ['#000000', '#aa0000', '#00aa00', '#aa5500',
+                    '#0000aa', '#aa00aa', '#00aaaa', '#c0c0c0'];
+
+        let fg = null, bg = null, bright = false;
+        const re = /\x1b\[([0-9;]*)([A-Za-z])|\x1b\]([^\x07]*)\x07/g;
+        let at = 0, m;
+        const emit = s => {
+            if (!s) return;
+            const span = document.createElement('span');
+            span.textContent = s;
+            if (fg !== null) span.style.color = (bright ? FG_BRIGHT : FG)[fg];
+            else if (bright) span.style.color = '#ffffff';
+            if (bg !== null) span.style.background = BG[bg];
+            this.screen.appendChild(span);
+        };
+
+        while ((m = re.exec(text)) !== null) {
+            emit(text.slice(at, m.index));
+            at = m.index + m[0].length;
+            if (m[3] !== undefined) continue;              // OSC: window title
+            const args = (m[1] || '').split(';').filter(s => s !== '').map(Number);
+            const cmd = m[2];
+            if (cmd === 'm') {
+                if (!args.length) args.push(0);
+                for (const a of args) {
+                    if (a === 0) { fg = bg = null; bright = false; }
+                    else if (a === 1) bright = true;
+                    else if (a === 22) bright = false;
+                    else if (a >= 30 && a <= 37) fg = a - 30;
+                    else if (a === 39) fg = null;
+                    else if (a >= 40 && a <= 47) bg = a - 40;
+                    else if (a === 49) bg = null;
+                    else if (a >= 90 && a <= 97) { fg = a - 90; bright = true; }
+                }
+            } else if (cmd === 'J' && (args[0] === 2 || args[0] === undefined)) {
+                this.screen.textContent = '';               // clear screen
+            } else if (cmd === 'H' || cmd === 'f') {
+                // cursor addressing has no meaning in a scrollback view; a home
+                // request is treated as a fresh line so redraws stay readable
+                if (!args.length || (args[0] === 1 && (args[1] || 1) === 1)) emit('\n');
+            }
+        }
+        emit(text.slice(at));
+
         if (this.pendingInput || this.waitKey) {
             const caret = document.createElement('span');
             caret.className = 'caret';

@@ -1069,13 +1069,430 @@ Features.playSnake = function () {
     win.querySelector('.body').style.cssText = 'flex:1;overflow:hidden;padding:4px;';
 };
 
+/* ========================================================= editor settings */
+
+/* Settings -> Editor.  These options really drive the editor.
+   They live on Features until App exists, then App.init adopts them. */
+Features.editorSettings = {
+    tabSize: 4, useTabs: false, lineNumbers: true, indentGuides: false,
+    showWhitespace: false, wordWrap: false, highlightCaretLine: false,
+    rightMargin: 0, autoIndent: true, autoCloseBrackets: true,
+};
+
+Features.applyEditorSettings = function () {
+    const s = App.editorSettings;
+    App.files.forEach(f => {
+        if (!f.cm) return;
+        f.cm.setOption('tabSize', s.tabSize);
+        f.cm.setOption('indentUnit', s.tabSize);
+        f.cm.setOption('indentWithTabs', s.useTabs);
+        f.cm.setOption('lineNumbers', s.lineNumbers);
+        f.cm.setOption('lineWrapping', s.wordWrap);
+        f.cm.setOption('styleActiveLine', s.highlightCaretLine);
+        f.cm.setOption('smartIndent', s.autoIndent);
+        f.cm.setOption('autoCloseBrackets', s.autoCloseBrackets);
+        f.cm.setOption('rulers', s.rightMargin
+            ? [{ column: s.rightMargin, color: '#c0c0c0', lineStyle: 'solid' }] : []);
+        f.cm.getWrapperElement().classList.toggle('cb-show-ws', s.showWhitespace);
+        f.cm.getWrapperElement().classList.toggle('cb-indent-guides', s.indentGuides);
+        f.cm.refresh();
+    });
+    localStorage.setItem('cbweb.editor', JSON.stringify(s));
+};
+
+Features.editorSettingsDialog = function () {
+    const s = App.editorSettings;
+    const body = el('div');
+    const check = (key, label) =>
+        `<label style="display:block;margin:3px 0">
+           <input type="checkbox" data-k="${key}" ${s[key] ? 'checked' : ''}> ${label}</label>`;
+    body.innerHTML = `
+      <div style="font-weight:bold;margin-bottom:6px">General settings</div>
+      <table style="border-spacing:6px">
+        <tr><td>TAB size:</td><td><input class="cb" type="number" min="1" max="16" data-k="tabSize"
+              value="${s.tabSize}" style="width:60px"></td></tr>
+        <tr><td>Right margin at column:</td><td><input class="cb" type="number" min="0" max="200"
+              data-k="rightMargin" value="${s.rightMargin}" style="width:60px"> (0 = off)</td></tr>
+      </table>
+      <div style="margin-top:8px">
+        ${check('useTabs', 'Use TAB character')}
+        ${check('lineNumbers', 'Show line numbers')}
+        ${check('indentGuides', 'Show indentation guides')}
+        ${check('showWhitespace', 'Show whitespace')}
+        ${check('wordWrap', 'Word wrap')}
+        ${check('highlightCaretLine', 'Highlight line under caret')}
+        ${check('autoIndent', 'Auto-indent')}
+        ${check('autoCloseBrackets', 'Auto-complete brackets')}
+      </div>`;
+
+    const apply = () => {
+        body.querySelectorAll('[data-k]').forEach(inp => {
+            const k = inp.dataset.k;
+            s[k] = inp.type === 'checkbox' ? inp.checked : parseInt(inp.value, 10) || 0;
+        });
+        Features.applyEditorSettings();
+    };
+    const w = UI.window({
+        title: 'Configure editor', icon: 'assets/codeblocks.png', width: 420, body,
+        buttons: [
+            { label: 'OK', onClick: () => { apply(); w.remove(); } },
+            { label: 'Apply', onClick: apply },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
+    });
+    w.style.height = 'auto';
+};
+
+/* ========================================================== build options */
+
+/* Project -> Build options.  The values here go straight into the real clang
+   command line, so changing the standard or the optimisation level changes
+   what is compiled. */
+Features.buildOptions = {
+    std: 'c++17',
+    optDebug: '-O0',
+    optRelease: '-O2',
+    defines: '',
+    wall: true,
+    wextra: false,
+    pedantic: false,
+};
+
+Features.buildOptionsDialog = function () {
+    const b = App.buildOptions;
+    const body = el('div');
+    const opt = (v, cur) => `<option${v === cur ? ' selected' : ''}>${v}</option>`;
+    body.innerHTML = `
+      <div style="font-weight:bold;margin-bottom:6px">Compiler settings for "${App.activeProject ? App.activeProject.name : 'project'}"</div>
+      <table style="border-spacing:6px">
+        <tr><td>Selected compiler:</td><td><select class="cb" style="width:220px"><option>GNU GCC Compiler</option></select></td></tr>
+        <tr><td>C++ standard:</td><td><select class="cb" data-k="std" style="width:120px">
+          ${['c++98', 'c++11', 'c++14', 'c++17'].map(v => opt(v, b.std)).join('')}</select></td></tr>
+        <tr><td>Optimisation (Debug):</td><td><select class="cb" data-k="optDebug" style="width:120px">
+          ${['-O0', '-O1', '-O2', '-O3', '-Os'].map(v => opt(v, b.optDebug)).join('')}</select></td></tr>
+        <tr><td>Optimisation (Release):</td><td><select class="cb" data-k="optRelease" style="width:120px">
+          ${['-O0', '-O1', '-O2', '-O3', '-Os'].map(v => opt(v, b.optRelease)).join('')}</select></td></tr>
+        <tr><td>#defines:</td><td><input class="cb" data-k="defines" value="${b.defines}"
+              placeholder="NDEBUG DEBUG=1" style="width:220px"></td></tr>
+      </table>
+      <div style="margin-top:8px">
+        <label style="display:block"><input type="checkbox" data-k="wall" ${b.wall ? 'checked' : ''}> Enable all common warnings (-Wall)</label>
+        <label style="display:block"><input type="checkbox" data-k="wextra" ${b.wextra ? 'checked' : ''}> Enable extra warnings (-Wextra)</label>
+        <label style="display:block"><input type="checkbox" data-k="pedantic" ${b.pedantic ? 'checked' : ''}> Strict ISO C++ (-pedantic)</label>
+      </div>
+      <div style="margin-top:10px;color:#555">These go into the actual clang command line.</div>`;
+
+    const w = UI.window({
+        title: 'Project build options', icon: 'assets/icons/compile.svg', width: 470, body,
+        buttons: [
+            {
+                label: 'OK',
+                onClick: () => {
+                    body.querySelectorAll('[data-k]').forEach(inp => {
+                        b[inp.dataset.k] = inp.type === 'checkbox' ? inp.checked : inp.value;
+                    });
+                    Build.lastBuild = null;              // options changed: rebuild
+                    localStorage.setItem('cbweb.build', JSON.stringify(b));
+                    UI.setStatus(0, 'Build options updated');
+                    w.remove();
+                },
+            },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
+    });
+    w.style.height = 'auto';
+};
+
+/* ======================================================== context menus */
+
+/* The editor's right-click menu.  The first two entries are context
+   sensitive, exactly as in the desktop IDE: they name the #include under the
+   caret and the text that would be searched for. */
+Features.editorContextMenu = function (cm, ev) {
+    const pos = cm.coordsChar({ left: ev.clientX, top: ev.clientY });
+    if (!cm.somethingSelected()) cm.setCursor(pos);
+
+    const lineText = cm.getLine(pos.line) || '';
+    const incMatch = /^\s*#\s*include\s*[<"]([^>"]+)[>"]/.exec(lineText);
+    const selected = cm.somethingSelected()
+        ? cm.getSelection().split('\n')[0]
+        : (incMatch ? lineText.trim() : (() => {
+            const w = cm.findWordAt(pos);
+            return cm.getRange(w.anchor, w.head);
+        })());
+
+    const ellipsis = s => (s.length > 42 ? s.slice(0, 40) + '...' : s);
+    const item = (id, label, extra) =>
+        Object.assign({ type: 'item', id, label, mnemonic: -1 }, extra || {});
+    const sub = (id, label, items) => ({ type: 'menu', id, label, mnemonic: -1, items });
+
+    const debugging = Debugger.active;
+    const hasSel = cm.somethingSelected();
+
+    const items = [
+        item('idCtxOpenInclude', `Open #include file: '${incMatch ? incMatch[1] : ''}'`,
+             { enabled: !!incMatch }),
+        item('idCtxFindOccurrences', `Find occurrences of: '${ellipsis(selected || '')}'`,
+             { enabled: !!selected }),
+        { type: 'sep' },
+        item('idDebuggerMenuRunToCursor', 'Run to cursor', { enabled: debugging }),
+        item('idDebuggerMenuToggleBreakpoint', 'Toggle breakpoint'),
+        { type: 'sep' },
+        item('idEditCut', 'Cut', { enabled: hasSel }),
+        item('idEditCopy', 'Copy', { enabled: hasSel }),
+        item('idEditPaste', 'Paste'),
+        sub('idCtxEdit', 'Edit', [
+            item('idEditUndo', 'Undo'),
+            item('idEditRedo', 'Redo'),
+            { type: 'sep' },
+            item('idEditSelectAll', 'Select all'),
+            item('idEditSelectNext', 'Select next occurrence'),
+            { type: 'sep' },
+            item('idEditToggleCommentSelected', 'Toggle comment'),
+            item('idEditStreamCommentSelected', 'Stream comment'),
+            item('idEditBoxCommentSelected', 'Box comment'),
+            { type: 'sep' },
+            item('idEditUpperCase', 'Uppercase'),
+            item('idEditLowerCase', 'Lowercase'),
+            { type: 'sep' },
+            item('idEditLineDuplicate', 'Duplicate line'),
+            item('idEditLineDelete', 'Delete line'),
+            item('idEditLineUp', 'Move line up'),
+            item('idEditLineDown', 'Move line down'),
+        ]),
+        { type: 'sep' },
+        sub('idCtxRefactor', 'Insert/Refactor', [
+            item('idCtxRefactorRename', 'Rename symbol...'),
+            item('idCtxRefactorExtract', 'Extract selection into a function...'),
+            { type: 'sep' },
+            item('idCtxInsertGuard', 'Insert include guard'),
+            item('idCtxInsertHeader', 'Insert file header comment'),
+            item('idDoxyBlockComment', 'Insert documentation block'),
+            { type: 'sep' },
+            item('idPluginsAbbreviations', 'Expand abbreviation', { accel: 'Ctrl-J' }),
+        ]),
+        sub('idCtxBookmarks', 'Bookmarks', [
+            item('idEditBookmarksToggle', 'Toggle bookmark', { accel: 'Ctrl-B' }),
+            item('idEditBookmarksPrevious', 'Previous bookmark'),
+            item('idEditBookmarksNext', 'Next bookmark'),
+            item('idEditBookmarksClearAll', 'Clear all bookmarks'),
+        ]),
+        { type: 'sep' },
+        item('idCtxAddTodo', 'Add Todo item...'),
+        sub('idCtxAligner', 'Aligner', [
+            item('idCtxAlignEquals', 'Align on ='),
+            item('idCtxAlignComma', 'Align on ,'),
+            item('idCtxAlignColon', 'Align on :'),
+            item('idCtxAlignComment', 'Align on //'),
+        ]),
+        sub('idCtxDoxyBlocks', 'DoxyBlocks', [
+            item('idDoxyBlockComment', 'Block comment', { accel: 'Ctrl-Alt-B' }),
+            item('idDoxyLineComment', 'Line comment', { accel: 'Ctrl-Alt-L' }),
+            { type: 'sep' },
+            item('idDoxyExtract', 'Extract documentation'),
+            item('idDoxyConfig', 'Open preferences...'),
+        ]),
+        item('idPluginsAStyle', 'Format use AStyle'),
+        { type: 'sep' },
+        sub('idCtxBrowseTracker', 'Browse Tracker', [
+            item('idBrowseTrackerBack', 'Backward'),
+            item('idBrowseTrackerForward', 'Forward'),
+            { type: 'sep' },
+            item('idBrowseTrackerClear', 'Clear all marks'),
+        ]),
+        sub('idCtxLocateIn', 'Locate in', [
+            item('idCtxLocateProjectTree', 'Project tree'),
+            item('idCtxLocateSymbols', 'Symbols browser'),
+            item('idCtxLocateOpenFiles', 'Open files list'),
+        ]),
+        sub('idCtxNassi', 'Nassi Shneiderman', [
+            item('idCtxNassiAdd', 'Add diagram for this function'),
+        ]),
+        item('idCtxSearchWeb', 'Search at BlackDuck...'),
+    ];
+
+    UI.popup(items, ev.clientX, ev.clientY, 0, it => App.command(it.id, { cm, pos, selected, incMatch }));
+};
+
+/* ------------------------------------------------- context menu commands */
+
+Features.contextCommand = function (id, ctx) {
+    const cm = cmOf();
+    const f = App.activeFile();
+    ctx = ctx || {};
+
+    switch (id) {
+        case 'idCtxOpenInclude': {
+            const name = ctx.incMatch && ctx.incMatch[1];
+            if (!name) return true;
+            const base = name.split('/').pop();
+            const open = App.files.find(x => x.name === base);
+            if (open) { App.nbEditors.select(open.key); return true; }
+            UI.messageBox(`The file "${name}" is a library header from the compiler's\n` +
+                          `sysroot, not a file in this project.`, 'Open include file', ['OK'], 'ℹ️');
+            return true;
+        }
+        case 'idCtxFindOccurrences': {
+            if (!ctx.selected) return true;
+            const pane = App.logs.search;
+            pane.innerHTML = '';
+            let n = 0;
+            App.files.forEach(file => {
+                file.text().split('\n').forEach((line, i) => {
+                    if (line.indexOf(ctx.selected) < 0) return;
+                    n++;
+                    const row = el('div', null, `${file.name}:${i + 1}: ${line.trim()}`);
+                    row.style.cursor = 'pointer';
+                    row.addEventListener('dblclick', () => {
+                        App.nbEditors.select(file.key);
+                        App.gotoLine(i + 1);
+                    });
+                    pane.appendChild(row);
+                });
+            });
+            const head = el('div', null, `Occurrences of "${ctx.selected}": ${n}`);
+            head.style.fontWeight = 'bold';
+            pane.insertBefore(head, pane.firstChild);
+            App.selectLogTab('search');
+            return true;
+        }
+        case 'idCtxAddTodo': {
+            if (!cm) return true;
+            UI.textEntry('To-Do text:', 'Add To-Do item', '').then(text => {
+                if (!text) return;
+                const line = cm.getCursor().line;
+                const indent = (cm.getLine(line).match(/^\s*/) || [''])[0];
+                cm.replaceRange(`${indent}// TODO (cbweb): ${text}\n`, { line, ch: 0 });
+                Features.showTodo();
+            });
+            return true;
+        }
+        case 'idCtxRefactorRename': {
+            if (!cm) return true;
+            const word = selectionOrWord(cm);
+            if (!word) return true;
+            UI.textEntry(`Rename "${word}" to:`, 'Rename symbol', word).then(name => {
+                if (!name || name === word) return;
+                let n = 0;
+                const re = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+                App.files.forEach(file => {
+                    const before = file.text();
+                    const after = before.replace(re, () => { n++; return name; });
+                    if (after !== before) file.cm.setValue(after);
+                });
+                UI.setStatus(0, `Renamed ${n} occurrence(s) of "${word}" to "${name}"`);
+            });
+            return true;
+        }
+        case 'idCtxRefactorExtract': {
+            if (!cm || !cm.somethingSelected()) {
+                UI.setStatus(0, 'Select the statements to extract first');
+                return true;
+            }
+            UI.textEntry('Name for the new function:', 'Extract function', 'extracted').then(name => {
+                if (!name) return;
+                const body = cm.getSelection().split('\n').map(l => '    ' + l.trim()).join('\n');
+                cm.replaceSelection(`${name}();`);
+                const at = { line: 0, ch: 0 };
+                const text = cm.getValue();
+                const mainAt = text.indexOf('int main');
+                const line = mainAt >= 0 ? cm.posFromIndex(mainAt).line : 0;
+                cm.replaceRange(`void ${name}()\n{\n${body}\n}\n\n`, { line, ch: 0 });
+                void at;
+            });
+            return true;
+        }
+        case 'idCtxInsertGuard': {
+            if (!cm || !f) return true;
+            const guard = f.name.toUpperCase().replace(/[^A-Z0-9]/g, '_') + '_INCLUDED';
+            cm.replaceRange(`#ifndef ${guard}\n#define ${guard}\n\n`, { line: 0, ch: 0 });
+            cm.replaceRange(`\n#endif // ${guard}\n`, { line: cm.lastLine(), ch: cm.getLine(cm.lastLine()).length });
+            return true;
+        }
+        case 'idCtxInsertHeader': {
+            if (!cm || !f) return true;
+            const today = new Date().toISOString().slice(0, 10);
+            cm.replaceRange(
+                `/***************************************************************\n` +
+                ` * Name:      ${f.name}\n * Purpose:   \n * Author:    \n` +
+                ` * Created:   ${today}\n * Copyright: \n * License:   \n` +
+                ` **************************************************************/\n\n`,
+                { line: 0, ch: 0 });
+            return true;
+        }
+        case 'idCtxAlignEquals': case 'idCtxAlignComma':
+        case 'idCtxAlignColon': case 'idCtxAlignComment': {
+            if (!cm) return true;
+            const token = { idCtxAlignEquals: '=', idCtxAlignComma: ',',
+                            idCtxAlignColon: ':', idCtxAlignComment: '//' }[id];
+            const from = cm.getCursor('from').line, to = cm.getCursor('to').line;
+            if (from === to) { UI.setStatus(0, 'Select the lines to align'); return true; }
+            const lines = [];
+            let col = 0;
+            for (let l = from; l <= to; l++) {
+                const text = cm.getLine(l);
+                const at = text.indexOf(token);
+                lines.push({ text, at });
+                if (at > col) col = at;
+            }
+            const out = lines.map(({ text, at }) => {
+                if (at < 0) return text;
+                return text.slice(0, at).padEnd(col) + text.slice(at);
+            });
+            cm.replaceRange(out.join('\n'), { line: from, ch: 0 },
+                            { line: to, ch: cm.getLine(to).length });
+            return true;
+        }
+        case 'idCtxLocateProjectTree': App.nbManagement.select('projects'); return true;
+        case 'idCtxLocateSymbols': App.nbManagement.select('symbols'); return true;
+        case 'idCtxLocateOpenFiles': App.nbManagement.select('openfiles'); return true;
+        case 'idCtxNassiAdd':
+            UI.messageBox('Nassi-Shneiderman diagrams need the contrib plugin,\n' +
+                          'which is not part of the web edition.', 'Nassi Shneiderman', ['OK'], 'ℹ️');
+            return true;
+        case 'idCtxSearchWeb': {
+            const term = cm ? selectionOrWord(cm) : '';
+            if (term) window.open('https://duckduckgo.com/?q=' + encodeURIComponent('C++ ' + term), '_blank');
+            return true;
+        }
+        case 'idBrowseTrackerBack': case 'idBrowseTrackerForward': {
+            const hist = App.browseHistory || [];
+            if (!hist.length) return true;
+            App.browseIndex = Math.max(0, Math.min(hist.length - 1,
+                (App.browseIndex === undefined ? hist.length - 1 : App.browseIndex) +
+                (id === 'idBrowseTrackerForward' ? 1 : -1)));
+            const h = hist[App.browseIndex];
+            if (h) { App.nbEditors.select(h.key); App.gotoLine(h.line); }
+            return true;
+        }
+        case 'idBrowseTrackerClear': App.browseHistory = []; return true;
+        case 'idBookmarkToggle': Features.toggleBookmark(); return true;
+        case 'idBookmarkNext': Features.gotoBookmark(1); return true;
+        case 'idBookmarkPrev': Features.gotoBookmark(-1); return true;
+        case 'idBookmarkClear':
+            if (f) { f.bookmarks = new Set(); Features.refreshBookmarks(); }
+            return true;
+        case 'idBrowseMarks': App.nbManagement.select('openfiles'); return true;
+        case 'idDoxyExtract': case 'idDoxyRunHTML': case 'idDoxyRunCHM':
+        case 'idDoxyWizard': case 'idDoxyConfig':
+            UI.messageBox('DoxyBlocks needs a local doxygen installation.\n' +
+                          'The comment insertion commands work without it.',
+                          'DoxyBlocks', ['OK'], 'ℹ️');
+            return true;
+        default:
+            return false;
+    }
+};
+
 /* ==================================================== the command dispatcher */
 
 /* Returns true when the id was handled here. */
-Features.command = function (id) {
+Features.command = function (id, ctx) {
     const cm = cmOf();
     const f = App.activeFile();
     const L = Features.lineOps;
+
+    if (Features.contextCommand(id, ctx)) return true;
 
     switch (id) {
         /* ---- Edit: bookmarks ---- */
@@ -1282,7 +1699,7 @@ Features.command = function (id) {
             w.style.height = 'auto';
             return true;
         }
-        case 'idMenuProjectBuildOptions': App.command('idSettingsCompiler'); return true;
+        case 'idMenuProjectBuildOptions': Features.buildOptionsDialog(); return true;
         case 'idMenuViewCategorize': case 'idMenuViewUseFolders':
         case 'idMenuViewHideFolderName': case 'idMenuViewSortAlphabetically': {
             App.treeOptions = App.treeOptions || {};
