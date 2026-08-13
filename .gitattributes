@@ -1,0 +1,7 @@
+# The WebAssembly toolchain is binary; never let git touch line endings.
+vendor/wasm-clang/clang       binary
+vendor/wasm-clang/lld         binary
+vendor/wasm-clang/memfs       binary
+vendor/wasm-clang/sysroot.tar binary
+*.png  binary
+*.wasm binary

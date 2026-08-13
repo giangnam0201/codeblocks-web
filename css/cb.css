@@ -1,0 +1,521 @@
+/* ---------------------------------------------------------------------------
+   Code::Blocks for the web - chrome styling.
+
+   Colours are the Windows 10 system colours that wxWidgets/wxAUI resolve to
+   when Code::Blocks runs on MSW, so the result matches the desktop build:
+
+     3DFACE / BTNFACE ............ #F0F0F0    ACTIVECAPTION ........ #99B4D1
+     ACTIVEBORDER ................ #B4B4B4    GRADIENTACTIVE ....... #B9D1EA
+     INACTIVECAPTION ............. #BFCDDB    GRADIENTINACTIVE ..... #D7E4F2
+     INACTIVECAPTIONTEXT ......... #434E54    CAPTIONTEXT .......... #000000
+--------------------------------------------------------------------------- */
+
+:root {
+    --face:            #f0f0f0;
+    --face-light:      #ffffff;
+    --btn-shadow:      #a0a0a0;
+    --btn-hilight:     #ffffff;
+    --border:          #919191;
+    --caption-a1:      #99b4d1;
+    --caption-a2:      #b9d1ea;
+    --caption-i1:      #bfcddb;
+    --caption-i2:      #d7e4f2;
+    --caption-text:    #000000;
+    --caption-itext:   #434e54;
+    --menu-hi:         #91c9f7;
+    --menu-hi-border:  #91c9f7;
+    --sash:            #f0f0f0;
+    --ui-font: "Segoe UI", "MS Shell Dlg 2", Tahoma, sans-serif;
+    --ui-size: 12px;
+    --mono-font: "Courier New", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0; padding: 0;
+    height: 100%; width: 100%;
+    overflow: hidden;
+    font-family: var(--ui-font);
+    font-size: var(--ui-size);
+    background: var(--face);
+    color: #000;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+}
+
+#frame { display: flex; flex-direction: column; height: 100%; width: 100%; }
+
+/* ---------------------------------------------------------------- menu bar */
+
+#menubar {
+    display: flex;
+    align-items: stretch;
+    height: 20px;
+    background: var(--face);
+    flex: none;
+    position: relative;
+    z-index: 400;
+}
+.mb-item {
+    padding: 0 8px;
+    line-height: 20px;
+    white-space: nowrap;
+}
+.mb-item:hover  { background: #cce8ff; }
+.mb-item.open   { background: var(--menu-hi); }
+.mnem { text-decoration: none; }
+body.show-mnemonics .mnem { text-decoration: underline; }
+
+/* Pop-up menus ------------------------------------------------------------ */
+
+.cb-popup {
+    position: absolute;
+    background: #ffffff;
+    border: 1px solid #959595;
+    padding: 2px 0;
+    min-width: 120px;
+    box-shadow: 2px 2px 3px rgba(0,0,0,.25);
+    z-index: 500;
+}
+.cb-popup .row {
+    display: flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 24px 0 0;
+    white-space: nowrap;
+}
+.cb-popup .row.disabled { color: #6d6d6d; }
+.cb-popup .row:not(.disabled):hover { background: var(--menu-hi); }
+.cb-popup .row .gutter {
+    width: 26px; min-width: 26px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+}
+.cb-popup .row .gutter img { width: 16px; height: 16px; }
+.cb-popup .row .check {
+    width: 14px; height: 14px; line-height: 12px; text-align: center;
+    font-size: 12px;
+}
+.cb-popup .row.checked .check {
+    border: 1px solid #b0b0b0; background: #e6f0fa;
+}
+.cb-popup .row .label { flex: 1; padding-right: 20px; }
+.cb-popup .row .accel { color: #000; opacity: .85; }
+.cb-popup .row .arrow { position: absolute; right: 6px; }
+.cb-popup .row { position: relative; }
+.cb-popup .sep {
+    height: 1px; background: #d7d7d7;
+    margin: 3px 2px 3px 28px;
+}
+
+/* --------------------------------------------------------------- tool bars */
+
+/* Two docked rows of wxAuiToolBars with 16x16 bitmaps, as Code::Blocks shows
+   them on Windows with the default 16px toolbar size. */
+#toolbar-dock {
+    flex: none;
+    background: var(--face);
+    border-bottom: 1px solid #dcdcdc;
+}
+.tb-row {
+    display: flex;
+    align-items: stretch;
+    height: 26px;
+    background: linear-gradient(to bottom, #fbfbfb 0%, var(--face) 100%);
+}
+.cb-toolbar {
+    display: flex;
+    align-items: center;
+    height: 26px;
+    padding: 0;
+}
+.tb-grip {
+    width: 7px; height: 22px;
+    margin: 0 1px;
+    align-self: center;
+    background-image:
+        linear-gradient(to bottom, #ffffff 50%, transparent 50%),
+        linear-gradient(to bottom, #a8a8a8 50%, transparent 50%);
+    background-size: 2px 4px, 2px 4px;
+    background-position: 3px 3px, 2px 2px;
+    background-repeat: repeat-y, repeat-y;
+    cursor: move;
+}
+.tb-btn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 1px 0;
+    border: 1px solid transparent;
+}
+.tb-btn img { width: 16px; height: 16px; }
+.tb-btn:hover:not(.disabled) { background: #e5f1fb; border-color: #70c0e7; }
+.tb-btn:active:not(.disabled) { background: #cce4f7; border-color: #569de5; }
+.tb-btn.disabled img { filter: grayscale(1) opacity(.35); }
+.tb-sep {
+    width: 1px; height: 18px; margin: 0 3px;
+    align-self: center;
+    background: #cfcfcf;
+    border-right: 1px solid #ffffff;
+}
+.tb-choice {
+    height: 20px;
+    width: 136px;
+    margin: 0 2px;
+    font-family: var(--ui-font);
+    font-size: var(--ui-size);
+    border: 1px solid #7a7a7a;
+    background: #fff;
+}
+.tb-text {
+    height: 20px;
+    margin: 0 2px;
+    font-family: var(--ui-font);
+    font-size: var(--ui-size);
+    border: 1px solid #7a7a7a;
+    background: #fff;
+    padding: 0 3px;
+}
+
+/* ---------------------------------------------------------- AUI dock frame */
+
+#main-area { flex: 1; display: flex; min-height: 0; background: var(--face); }
+#center-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.cb-pane {
+    display: flex;
+    flex-direction: column;
+    background: var(--face);
+    min-width: 0; min-height: 0;
+}
+.pane-caption {
+    height: 20px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    padding-left: 4px;
+    background: linear-gradient(to right, var(--caption-a1), var(--caption-a2));
+    color: var(--caption-text);
+    cursor: move;
+}
+.cb-pane.inactive .pane-caption {
+    background: linear-gradient(to right, var(--caption-i1), var(--caption-i2));
+    color: var(--caption-itext);
+}
+.pane-caption .title { flex: 1; }
+.pane-btn {
+    width: 17px; height: 15px;
+    display: flex; align-items: center; justify-content: center;
+    margin-right: 1px;
+}
+.pane-btn:hover { background: rgba(255,255,255,.55); }
+.pane-btn svg { display: block; }
+.pane-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.sash-v { width: 4px; cursor: ew-resize; background: var(--sash); flex: none; }
+.sash-h { height: 4px; cursor: ns-resize; background: var(--sash); flex: none; }
+
+/* ------------------------------------------------ wxAuiNotebook tab strips */
+
+.cb-notebook { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.nb-tabs {
+    height: 21px;
+    flex: none;
+    display: flex;
+    align-items: flex-end;
+    background: var(--face);
+    border-bottom: 1px solid #8b8b8b;
+    overflow: hidden;
+    position: relative;
+}
+.nb-scroll {
+    width: 12px; height: 20px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; color: #444;
+}
+.nb-scroll:hover { background: #e5f1fb; }
+.nb-tab {
+    height: 20px;
+    display: flex;
+    align-items: center;
+    padding: 0 3px 0 5px;
+    margin-right: -1px;
+    max-width: 240px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    border-bottom: none;
+    position: relative;
+}
+.nb-tab .tab-icon { width: 16px; height: 16px; margin-right: 3px; flex: none; }
+.nb-tab .tab-text { overflow: hidden; text-overflow: ellipsis; }
+.nb-tab.active {
+    background: linear-gradient(to bottom, var(--face) 0%, #ffffff 100%);
+    border-color: #8b8b8b;
+    font-weight: bold;
+    z-index: 2;
+}
+.nb-tab:not(.active):hover { background: rgba(255,255,255,.6); }
+.nb-tab .tab-close {
+    width: 14px; height: 14px; margin-left: 4px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    opacity: .75;
+}
+.nb-tab .tab-close:hover { background: #d0d0d0; border-radius: 2px; opacity: 1; }
+.nb-pages { flex: 1; min-height: 0; position: relative; background: #fff; }
+.nb-page { position: absolute; inset: 0; display: none; overflow: auto; }
+.nb-page.active { display: block; }
+
+/* ----------------------------------------------------------- project trees */
+
+.cb-tree {
+    font-family: var(--ui-font);
+    font-size: var(--ui-size);
+    background: #fff;
+    height: 100%;
+    overflow: auto;
+    padding: 2px 0;
+}
+.tree-row {
+    display: flex;
+    align-items: center;
+    height: 18px;
+    padding-right: 4px;
+    white-space: nowrap;
+}
+.tree-row:hover { background: #e5f3ff; }
+.tree-row.selected { background: #cce8ff; border: 1px solid #99d1ff; height: 18px; }
+.tree-row .twisty {
+    width: 16px; height: 16px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; color: #6d6d6d;
+}
+.tree-row .twisty svg { display: block; }
+.tree-row img { width: 16px; height: 16px; margin-right: 3px; flex: none; }
+.tree-row.bold { font-weight: bold; }
+
+/* -------------------------------------------------------------- log panels */
+
+.log-text {
+    font-family: var(--mono-font);
+    font-size: 12px;
+    white-space: pre-wrap;
+    padding: 2px 4px;
+    background: #fff;
+    height: 100%;
+    overflow: auto;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.log-text .err  { color: #ff0000; }
+.log-text .warn { color: #0000ff; }
+.log-text .ok   { color: #008000; }
+
+table.log-grid {
+    border-collapse: collapse;
+    width: 100%;
+    background: #fff;
+    font-size: var(--ui-size);
+}
+table.log-grid th {
+    background: var(--face);
+    border-right: 1px solid #d0d0d0;
+    border-bottom: 1px solid #d0d0d0;
+    font-weight: normal;
+    text-align: left;
+    padding: 2px 4px;
+    position: sticky; top: 0;
+}
+table.log-grid td { padding: 1px 4px; white-space: nowrap; }
+table.log-grid tr.error td   { color: #ff0000; }
+table.log-grid tr.warning td { color: #0000c0; }
+table.log-grid tr.selected td { background: #cce8ff; }
+
+/* --------------------------------------------------------------- statusbar */
+
+#statusbar {
+    height: 22px;
+    flex: none;
+    display: flex;
+    align-items: stretch;
+    background: var(--face);
+    font-size: var(--ui-size);
+}
+#statusbar .field {
+    padding: 0 5px;
+    height: 22px;
+    line-height: 21px;
+    border-left: 1px solid #ffffff;
+    border-right: 1px solid #cfcfcf;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    flex: none;
+}
+#statusbar .field:first-child { border-left: none; }
+#statusbar .field.grow { flex: 1; min-width: 0; }
+/* the highlight-language field is a real (flat) button in the desktop IDE */
+#statusbar .field.button {
+    background: linear-gradient(to bottom, #fdfdfd, #f0f0f0);
+    border: 1px solid #b8b8b8;
+    margin: 1px 0;
+    line-height: 18px;
+}
+#statusbar .field.button:hover { background: #e5f1fb; border-color: #70c0e7; }
+#statusbar .flag { display: flex; align-items: center; padding: 0 6px; }
+
+/* --------------------------------------------------- Scintilla-ish editor  */
+
+.cb-editor { position: absolute; inset: 0; }
+.CodeMirror {
+    height: 100%;
+    font-family: var(--mono-font);
+    font-size: 13px;
+    line-height: 15px;
+    background: #ffffff;
+    color: #000000;
+}
+.CodeMirror-gutters {
+    background: var(--face);
+    border-right: none;
+}
+.CodeMirror-linenumber {
+    color: #000000;
+    padding: 0 3px 0 5px;
+}
+.cb-margin-marker { width: 16px; background: var(--face); }
+.cb-margin-change { width: 4px;  background: var(--face); }
+.CodeMirror-foldgutter { width: 16px; background: var(--face); }
+.CodeMirror-selected        { background: #c0c0c0 !important; }
+.CodeMirror-focused .CodeMirror-selected { background: #c0c0c0 !important; }
+.CodeMirror-cursor { border-left: 1px solid #000000; }
+.cm-matchhighlight { background: #e6e6e6; }
+.CodeMirror-matchingbracket { color: #000 !important; background: #ccffcc; font-weight: bold; }
+
+/* Colours taken 1:1 from sdk/resources/lexers/lexer_cpp.xml */
+.cm-s-cb .cm-comment      { color: #9898d9; }
+.cm-s-cb .cm-cb-docblock  { color: #8080ff; font-weight: bold; }
+.cm-s-cb .cm-number       { color: #f000f0; }
+.cm-s-cb .cm-keyword      { color: #0000a0; font-weight: bold; }
+.cm-s-cb .cm-builtin      { color: #0000a0; font-weight: bold; }
+.cm-s-cb .cm-type         { color: #0000a0; font-weight: bold; }
+.cm-s-cb .cm-atom         { color: #0000a0; font-weight: bold; }
+.cm-s-cb .cm-variable-3   { color: #be00be; font-weight: bold; }
+.cm-s-cb .cm-string       { color: #0000ff; }
+.cm-s-cb .cm-string-2     { color: #e0a000; }
+.cm-s-cb .cm-meta         { color: #00a000; }
+.cm-s-cb .cm-operator     { color: #ff0000; }
+.cm-s-cb .cm-punctuation  { color: #ff0000; }
+.cm-s-cb .cm-variable,
+.cm-s-cb .cm-def,
+.cm-s-cb .cm-property     { color: #000000; }
+.cm-s-cb .cm-bracket      { color: #ff0000; }
+.cm-s-cb .cm-error        { color: #000; }
+
+.cb-line-breakpoint  { background: #ffa0a0; }
+.cb-line-debug       { background: #a0a0ff; }
+.cb-line-error       { background: #ff8000; }
+.cb-marker-bp        { width: 16px; height: 16px; }
+
+/* ----------------------------------------------------- start-here HTML page */
+
+/* CB_BODY_BGCOLOUR resolves to the window colour, which is white - the title
+   bitmap has a white background and has to blend into it seamlessly. */
+.start-here {
+    background: #ffffff;
+    height: 100%;
+    overflow: auto;
+    text-align: center;
+    font-family: "Times New Roman", serif;
+    font-size: 16px;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.start-here a { color: #0000ff; text-decoration: underline; }
+.start-here img { border: 0; }
+.start-here table { margin: 0 auto; border-spacing: 5px; }
+.start-here hr { width: 90%; }
+
+/* ---------------------------------------------------------- dialog windows */
+
+.cb-dialog-veil {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.06);
+    z-index: 900;
+    display: flex; align-items: center; justify-content: center;
+}
+.cb-window {
+    position: absolute;
+    background: var(--face);
+    border: 1px solid #4d4d4d;
+    box-shadow: 3px 3px 12px rgba(0,0,0,.35);
+    display: flex; flex-direction: column;
+    z-index: 950;
+}
+.cb-window > .title {
+    height: 26px; flex: none;
+    display: flex; align-items: center;
+    padding-left: 6px;
+    background: linear-gradient(to bottom, #ffffff, #f0f0f0);
+    border-bottom: 1px solid #d5d5d5;
+    cursor: move;
+}
+.cb-window > .title .t-icon { width: 16px; height: 16px; margin-right: 5px; }
+.cb-window > .title .t-text { flex: 1; }
+.cb-window > .title .t-btn {
+    width: 30px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+}
+.cb-window > .title .t-btn:hover { background: #d8d8d8; }
+.cb-window > .title .t-btn.close:hover { background: #e81123; color: #fff; }
+.cb-window > .body { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
+.cb-window > .buttons {
+    flex: none; padding: 8px; text-align: right;
+    border-top: 1px solid #dcdcdc;
+}
+
+button.cb {
+    font-family: var(--ui-font); font-size: var(--ui-size);
+    min-width: 75px; height: 23px;
+    margin-left: 6px;
+    background: linear-gradient(to bottom, #f2f2f2, #e6e6e6);
+    border: 1px solid #adadad;
+}
+button.cb:hover  { background: linear-gradient(to bottom, #eaf6fd, #d9f0fc); border-color: #3c7fb1; }
+button.cb:active { background: #c4e5f6; }
+input.cb, select.cb, textarea.cb {
+    font-family: var(--ui-font); font-size: var(--ui-size);
+    border: 1px solid #7a7a7a; background: #fff; padding: 2px 3px;
+}
+
+/* ------------------------------------------------------- program console    */
+
+#console-window { width: 640px; height: 400px; }
+#console-window .body { padding: 0; background: #000; overflow: hidden; }
+.console-screen {
+    width: 100%; height: 100%;
+    background: #000000;
+    color: #c0c0c0;
+    font-family: "Consolas", "Lucida Console", var(--mono-font);
+    font-size: 14px;
+    line-height: 16px;
+    padding: 2px 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-y: auto;
+    -webkit-user-select: text;
+    user-select: text;
+    outline: none;
+}
+.console-screen .caret {
+    display: inline-block;
+    width: 8px; height: 14px;
+    background: #c0c0c0;
+    vertical-align: text-bottom;
+    animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink { to { visibility: hidden; } }
+
+/* --------------------------------------------------------------- utilities */
+
+.hidden { display: none !important; }
+.grow { flex: 1; }
