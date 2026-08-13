@@ -123,3 +123,43 @@ tools/test-cpp.js          tests for the stepping interpreter
 
 Licence: the Code::Blocks resources are GPL-3.0 (as in this repository);
 `vendor/wasm-clang` is Apache-2.0; `vendor/codemirror` is MIT.
+
+## Features
+
+Beyond building and running, the commands below are wired to the same menu ids
+the desktop IDE uses, so the accelerators in the menus drive them directly.
+
+**Editor** — bookmarks (toggle/next/previous/clear, shown in the marker margin
+next to the breakpoints), folding (all / current block / toggle), end-of-line
+mode, file encoding, highlight mode, zoom in/out/reset, and the Special
+commands: line duplicate/cut/copy/paste/delete/transpose/move up/move down,
+uppercase/lowercase, insert line above/below, paragraph and word-part movement
+with and without extending the selection.
+
+**Code intelligence** — code completion (Ctrl+Space) over the keywords, the
+library names and everything declared in the file; call tips
+(Ctrl+Shift+Space); abbreviations (Ctrl+J expands `for`, `if`, `class`,
+`main`, `guard`, …); occurrences highlighting; select next occurrence (Ctrl+E);
+swap header/source (F11); goto matching brace; comment, uncomment,
+stream-comment and box-comment.
+
+**Search** — find/replace in the editor, find and replace *in files* with the
+results listed in the Search results pane, find next/previous selected, and
+goto next/previous changed line (the changebar margin tracks edits).
+
+**Plugins** — the source formatter (AStyle, Ctrl+Shift+U), the To-Do list
+(scans TODO/FIXME/NOTE/BUG/HACK into its own pane), code statistics, thread
+search, the open-files list in the Management panel, the scripting console,
+DoxyBlocks comment insertion, and **C::B games — cbTris and Snake** (Plugins →
+C::B games), the same idea as the byogames contrib plugin.
+
+**Project / build** — targets, project notes, project tree options, activate
+next/previous project, build options, and Export Makefile (writes a real
+Makefile for the open sources).
+
+**Debugger** — breakpoints, step into/over/out, run to cursor, and the
+debugging windows: call stack, CPU registers, disassembly, memory dump,
+running threads, watches and breakpoints, plus the Information dialogs.
+
+184 of the 230 menu commands are live; the rest are the ones that need a
+desktop toolchain (attach to process, Fortran, wxSmith).

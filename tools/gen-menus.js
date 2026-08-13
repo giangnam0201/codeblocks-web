@@ -198,7 +198,46 @@ menus.splice(projectIdx + 1, 0, buildMenu, debugMenu);
 
 // The Tools menu is populated by the ToolsPlugin at runtime.
 const tools = menus.find(m => m.id === 'menu_tools');
-tools.items.push({ type: 'item', id: 'idToolsConfigure', label: 'Configure tools...', mnemonic: -1 });
+tools.items.push(
+    { type: 'item', id: 'idPluginsCodeStats', label: 'Code statistics', mnemonic: -1,
+      help: 'Count code, comment and empty lines' },
+    { type: 'item', id: 'idPluginsTodo', label: 'To-Do list', mnemonic: -1,
+      help: 'List the TODO/FIXME/NOTE items in the open files' },
+    { type: 'item', id: 'idPluginsThreadSearch', label: 'Thread search', mnemonic: -1 },
+    { type: 'sep' },
+    { type: 'item', id: 'idToolsConfigure', label: 'Configure tools...', mnemonic: -1 });
+
+// Plugins menu: the entries the contrib plugins add to it.
+const plugins = menus.find(m => m.id === 'menu_plugins');
+plugins.items.unshift(
+    { type: 'item', id: 'idPluginsAStyle', label: 'Source code formatter (AStyle)', mnemonic: -1,
+      accel: 'Ctrl-Shift-U', help: 'Format the current source file' },
+    { type: 'item', id: 'idPluginsAbbreviations', label: 'Expand abbreviation', mnemonic: -1,
+      accel: 'Ctrl-J', help: 'Expand the keyword before the caret' },
+    { type: 'item', id: 'idPluginsCodeComplete', label: 'Code completion', mnemonic: -1,
+      accel: 'Ctrl-Space' },
+    { type: 'item', id: 'idPluginsOccurrences', label: 'Occurrences highlighting', mnemonic: -1,
+      checkable: true, checked: true },
+    { type: 'item', id: 'idPluginsGames', label: 'C::B games', mnemonic: -1,
+      help: 'Play cbTris or Snake' },
+    { type: 'sep' });
+
+// Edit -> Highlight mode gets the C/C++ lexer alongside Plain text.
+const editMenu = menus.find(m => m.id === 'edit_menu');
+const hl = editMenu.items.find(i => i.id === 'idEditHighlightMode');
+if (hl) hl.items.push({ type: 'item', id: 'idEditHighlightModeCpp', label: 'C/C++', mnemonic: -1 });
+
+// Edit -> Folding: the "all" entries the plugin adds.
+const folding = editMenu.items.find(i => i.id === 'idEditFolding');
+if (folding) folding.items.unshift(
+    { type: 'item', id: 'idEditFoldAll', label: 'Fold all', mnemonic: -1 },
+    { type: 'item', id: 'idEditUnfoldAll', label: 'Unfold all', mnemonic: -1 });
+
+// View -> Toolbars: the compiler toolbar entry.
+const viewMenu = menus.find(m => m.id === 'menu_view');
+const toolbars = viewMenu.items.find(i => i.id === 'idViewToolbars');
+if (toolbars) toolbars.items.push(
+    { type: 'item', id: 'idViewToolCompiler', label: 'Compiler', mnemonic: -1, checkable: true, checked: true });
 
 // --- contrib plugin menus, in the order the Windows installer produces ------
 const item = (id, label, extra) => Object.assign({ type: 'item', id, label, mnemonic: -1 }, extra || {});

@@ -337,6 +337,12 @@ const CB_MENUS = [
       "mnemonic": -1,
       "help": "Switch highlighting mode for current document to \"Plain text\"",
       "radio": true
+     },
+     {
+      "type": "item",
+      "id": "idEditHighlightModeCpp",
+      "label": "C/C++",
+      "mnemonic": -1
      }
     ]
    },
@@ -386,6 +392,18 @@ const CB_MENUS = [
     "label": "Folding",
     "mnemonic": 0,
     "items": [
+     {
+      "type": "item",
+      "id": "idEditFoldAll",
+      "label": "Fold all",
+      "mnemonic": -1
+     },
+     {
+      "type": "item",
+      "id": "idEditUnfoldAll",
+      "label": "Unfold all",
+      "mnemonic": -1
+     },
      {
       "type": "item",
       "id": "idEditFoldAll",
@@ -967,6 +985,14 @@ const CB_MENUS = [
       "mnemonic": 0,
       "help": "Show/hide debugger toolbar",
       "checkable": true
+     },
+     {
+      "type": "item",
+      "id": "idViewToolCompiler",
+      "label": "Compiler",
+      "mnemonic": -1,
+      "checkable": true,
+      "checked": true
      }
     ]
    },
@@ -1889,6 +1915,29 @@ const CB_MENUS = [
   "items": [
    {
     "type": "item",
+    "id": "idPluginsCodeStats",
+    "label": "Code statistics",
+    "mnemonic": -1,
+    "help": "Count code, comment and empty lines"
+   },
+   {
+    "type": "item",
+    "id": "idPluginsTodo",
+    "label": "To-Do list",
+    "mnemonic": -1,
+    "help": "List the TODO/FIXME/NOTE items in the open files"
+   },
+   {
+    "type": "item",
+    "id": "idPluginsThreadSearch",
+    "label": "Thread search",
+    "mnemonic": -1
+   },
+   {
+    "type": "sep"
+   },
+   {
+    "type": "item",
     "id": "idToolsConfigure",
     "label": "Configure tools...",
     "mnemonic": -1
@@ -1913,6 +1962,47 @@ const CB_MENUS = [
   "label": "Plugins",
   "mnemonic": 1,
   "items": [
+   {
+    "type": "item",
+    "id": "idPluginsAStyle",
+    "label": "Source code formatter (AStyle)",
+    "mnemonic": -1,
+    "accel": "Ctrl-Shift-U",
+    "help": "Format the current source file"
+   },
+   {
+    "type": "item",
+    "id": "idPluginsAbbreviations",
+    "label": "Expand abbreviation",
+    "mnemonic": -1,
+    "accel": "Ctrl-J",
+    "help": "Expand the keyword before the caret"
+   },
+   {
+    "type": "item",
+    "id": "idPluginsCodeComplete",
+    "label": "Code completion",
+    "mnemonic": -1,
+    "accel": "Ctrl-Space"
+   },
+   {
+    "type": "item",
+    "id": "idPluginsOccurrences",
+    "label": "Occurrences highlighting",
+    "mnemonic": -1,
+    "checkable": true,
+    "checked": true
+   },
+   {
+    "type": "item",
+    "id": "idPluginsGames",
+    "label": "C::B games",
+    "mnemonic": -1,
+    "help": "Play cbTris or Snake"
+   },
+   {
+    "type": "sep"
+   },
    {
     "type": "item",
     "id": "idPluginsManagePlugins",

@@ -5,6 +5,8 @@
 'use strict';
 
 const App = {
+    highlightOccurrencesOn: true,
+    zoomLevel: 0,
     files: [],                 // open editors
     projects: [],
     activeProject: null,
@@ -84,21 +86,41 @@ App.openFile = function (name, text, project, activate) {
         foldGutter: true,
         gutters: ['CodeMirror-linenumbers', 'cb-margin-marker', 'cb-margin-change', 'CodeMirror-foldgutter'],
         extraKeys: {
-            'Ctrl-Space': 'autocomplete',
+            'Ctrl-Space': () => Features.codeComplete(),
+            'Ctrl-J': () => Features.expandAbbreviation(),
+            'Ctrl-Shift-Space': () => Features.showCallTip(),
+            'Ctrl-B': () => Features.toggleBookmark(),
+            'Alt-Up': () => Features.lineOps.up(f.cm),
+            'Alt-Down': () => Features.lineOps.down(f.cm),
+            'Ctrl-D': () => Features.lineOps.duplicate(f.cm),
+            'Ctrl-E': () => Features.selectNextOccurrence(false),
+            'F12': () => Features.foldBlock(),
+            'Shift-F12': () => App.command('idEditToggleAllFolds'),
             'F5': () => App.command('idDebuggerMenuToggleBreakpoint'),
+            'F11': () => App.command('idEditSwapHeaderSource'),
         },
     });
     f.cm.swapDoc(f.doc);
-    f.cm.on('change', () => {
+    f.cm.on('change', (cm, change) => {
         if (!f.modified) {
             f.modified = true;
             App.nbEditors.setTitle(f.key, '*' + f.name);
         }
+        // the changebar margin tracks which lines were edited
+        if (!f.changedLines) f.changedLines = new Set();
+        for (let l = change.from.line; l <= change.to.line + (change.text.length - 1); l++)
+            f.changedLines.add(l + 1);
         App.updateStatusBar();
     });
-    f.cm.on('cursorActivity', () => App.updateStatusBar());
-    f.cm.on('gutterClick', (cm, line, gutter) => {
-        if (gutter === 'cb-margin-marker') App.toggleBreakpointAt(f, line + 1);
+    f.cm.on('cursorActivity', () => {
+        App.updateStatusBar();
+        Features.highlightOccurrences(f.cm);
+    });
+    // left margin: click sets a breakpoint, Ctrl-click sets a bookmark
+    f.cm.on('gutterClick', (cm, line, gutter, ev) => {
+        if (gutter !== 'cb-margin-marker') return;
+        if (ev && (ev.ctrlKey || ev.shiftKey)) Features.toggleBookmark(line + 1);
+        else App.toggleBreakpointAt(f, line + 1);
     });
 
     if (activate !== false) App.nbEditors.select(f.key);
@@ -175,17 +197,35 @@ App.toggleBreakpointAt = function (file, line) {
     return on;
 };
 
+/* Redraws the marker margin: breakpoints and bookmarks share it, exactly as
+   they do in the desktop editor. */
 App.refreshBreakpoints = function () {
     App.files.forEach(f => {
         if (!f.cm) return;
         f.cm.clearGutter('cb-margin-marker');
-        const set = Debugger.breakpoints.get(f.name);
-        if (!set) return;
-        set.forEach(line => {
+        f.cm.clearGutter('cb-margin-change');
+
+        const marker = (src, title) => {
             const img = document.createElement('img');
-            img.src = 'assets/icons/breakpoint.svg';
+            img.src = src;
+            img.title = title;
             img.style.cssText = 'width:12px;height:12px;margin-left:2px;';
-            f.cm.setGutterMarker(line - 1, 'cb-margin-marker', img);
+            return img;
+        };
+        (f.bookmarks || new Set()).forEach(line =>
+            f.cm.setGutterMarker(line - 1, 'cb-margin-marker',
+                                 marker('assets/icons/bookmark_add.svg', 'Bookmark')));
+        const set = Debugger.breakpoints.get(f.name);
+        if (set) set.forEach(line =>
+            f.cm.setGutterMarker(line - 1, 'cb-margin-marker',
+                                 marker('assets/icons/breakpoint.svg', 'Breakpoint')));
+
+        // changebar: yellow for unsaved edits, green once saved
+        (f.changedLines || new Set()).forEach(line => {
+            const bar = document.createElement('div');
+            bar.style.cssText = 'width:4px;height:100%;background:' +
+                                (f.modified ? '#ffe604' : '#04ff50') + ';';
+            f.cm.setGutterMarker(line - 1, 'cb-margin-change', bar);
         });
     });
     App.refreshBreakpointList();
@@ -417,6 +457,16 @@ App.refreshTrees = function () {
             label: App.projectPath, icon: 'assets/icons/tree/folder_open.svg', expanded: true,
             children: App.files.map(fileNode),
         }]);
+    }
+
+    // Open files list: the editors currently open, in tab order
+    if (App.treeOpenFiles) {
+        App.treeOpenFiles.setRoots(App.files.map(f => ({
+            label: (f.modified ? '*' : '') + f.name,
+            icon: 'assets/icons/tree/' + (f.modified ? 'file-modified.svg' : 'file.svg'),
+            data: f,
+            children: [],
+        })));
     }
 };
 
@@ -763,6 +813,7 @@ App.command = async function (id, extra) {
         case 'idHelpTips': return Dialogs.tipOfTheDay();
 
         default:
+            if (typeof Features !== 'undefined' && Features.command(id)) return;
             UI.setStatus(0, 'Command "' + id + '" is not available in the web edition');
             return;
     }
@@ -1177,9 +1228,10 @@ const LOG_TABS = [
     { key: 'doxyblocks', title: 'DoxyBlocks', icon: 'edit' },
     { key: 'fortran', title: 'Fortran info', icon: 'edit' },
     { key: 'closedfiles', title: 'Closed files list', icon: 'edit' },
-    { key: 'threadsearch', title: 'Thread search', icon: 'edit' },
-    { key: 'breakpoints', title: 'Breakpoints', icon: 'flag', special: 'breakpoints' },
-    { key: 'watches', title: 'Watches', icon: 'misc', special: 'watches' },
+    { key: 'threadsearch', title: 'Thread search', icon: 'edit', special: 'threadsearch' },
+    { key: 'todo', title: 'To-Do list', icon: 'flag', special: 'todo' },
+    { key: 'breakpoints', title: 'Breakpoints', icon: 'flag', special: 'breakpoint' },
+    { key: 'watches', title: 'Watches', icon: 'misc', special: 'watch' },
 ];
 
 /* Pulls the compiler down and warms it while the user is still reading the
@@ -1252,9 +1304,15 @@ function init() {
     const projHost = document.createElement('div');
     const symHost = document.createElement('div');
     const filesHost = document.createElement('div');
+    const openHost = document.createElement('div');
     App.nbManagement.addPage('projects', 'Projects', projHost);
     App.nbManagement.addPage('symbols', 'Symbols', symHost);
     App.nbManagement.addPage('files', 'Files', filesHost);
+    App.nbManagement.addPage('openfiles', 'Open files list', openHost);
+    App.treeOpenFiles = new UI.Tree(openHost);
+    App.treeOpenFiles.onSelect = node => {
+        if (node.data instanceof SourceFile) App.nbEditors.select(node.data.key);
+    };
     App.treeProjects = new UI.Tree(projHost);
     App.treeSymbols = new UI.Tree(symHost);
     App.treeFiles = new UI.Tree(filesHost);
@@ -1312,7 +1370,7 @@ function init() {
                 '<th>Message</th></tr></thead><tbody></tbody></table>';
         } else if (t.special) {
             content = document.createElement('div');
-            content.id = t.special === 'watches' ? 'watch-body' : 'breakpoint-body';
+            content.id = t.special + '-body';
             content.className = 'cb-tree';
         } else {
             content = document.createElement('div');

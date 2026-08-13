@@ -435,6 +435,39 @@ table.log-grid tr.selected td { background: #cce8ff; }
 .start-here table { margin: 0 auto; border-spacing: 5px; }
 .start-here hr { width: 90%; }
 
+/* ------------------------------------------- code completion / call tips */
+
+.cb-complete {
+    position: absolute;
+    z-index: 980;
+    max-height: 220px;
+    min-width: 160px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #7a7a7a;
+    box-shadow: 2px 2px 4px rgba(0,0,0,.25);
+    font-family: var(--mono-font);
+    font-size: 12px;
+}
+.cb-complete .row { padding: 1px 8px 1px 4px; white-space: nowrap; }
+.cb-complete .row.selected { background: #cce8ff; }
+.cb-complete .row:hover { background: #e5f3ff; }
+
+.cb-calltip {
+    position: absolute;
+    z-index: 980;
+    background: #ffffe1;
+    border: 1px solid #7a7a7a;
+    padding: 2px 5px;
+    font-family: var(--mono-font);
+    font-size: 12px;
+    white-space: pre;
+    box-shadow: 1px 1px 3px rgba(0,0,0,.25);
+}
+
+/* the Occurrences highlighting plugin */
+.cb-occurrence { background: #d4e7c5; }
+
 /* ---------------------------------------------------------- dialog windows */
 
 .cb-dialog-veil {
