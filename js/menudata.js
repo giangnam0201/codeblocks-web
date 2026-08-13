@@ -57,6 +57,13 @@ const CB_MENUS = [
       "label": "From template...",
       "mnemonic": -1,
       "help": "Create a new project based on a previously saved template"
+     },
+     {
+      "type": "item",
+      "id": "idFileNewClass",
+      "label": "Class...",
+      "mnemonic": -1,
+      "help": "Create a new class (header and implementation)"
      }
     ]
    },

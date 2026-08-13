@@ -54,6 +54,18 @@ class StdinStarved extends Error {
 
 let api = null;
 let sink = () => {};
+
+/* Paths the toolchain has produced, so the Files panel can show what a build
+   actually left behind.  memfs has no directory listing of its own. */
+const fsFiles = new Map();     // path -> {size, kind}
+function noteFile(path, kind) {
+    let size = 0;
+    try { size = api.memfs.getFileContents(path).length; } catch (e) { size = 0; }
+    fsFiles.set(path, { size, kind });
+}
+function listFs() {
+    return Array.from(fsFiles, ([path, info]) => ({ path, ...info }));
+}
 let doneBytes = 0;
 const modules = new Map();          // build id -> linked WebAssembly.Module
 let nextModuleId = 1;
@@ -197,6 +209,9 @@ async function build(fileName, source, options) {
     const module = await WebAssembly.compile(buffer);
     const id = nextModuleId++;
     modules.set(id, module);
+    noteFile(fileName, 'source');
+    noteFile(obj, 'object');
+    noteFile(out, 'executable');
     return { ok: true, diagnostics, id, size: buffer.length };
 }
 
@@ -236,6 +251,29 @@ async function run(id, exeName, stdin, stopOnInput) {
     return { output, exit, starved };
 }
 
+/* Real disassembly: clang -S emits the assembly for the translation unit.
+   The target is the one the program is actually built for - this libc++ is
+   configured for wasm32 only, so an x86 triple cannot even parse <iostream>.
+   What comes back is therefore the true assembly of the running program. */
+async function assemble(fileName, source, options) {
+    await init();
+    const out = fileName.replace(/\.[^.]*$/, '') + '.s';
+    api.memfs.addFile(fileName, source);
+    const clang = await api.getModule('clang');
+    const args = CC1_BASE.concat([
+        '-S',
+        '-triple=' + (options.triple || 'wasm32-unknown-wasi'),
+        '-std=' + (options.std || 'c++17'),
+        options.opt || '-O0',
+        '-o', out, '-x', 'c++', fileName,
+    ]);
+    const r = await capture(() => api.run(clang, 'clang', '-cc1', ...args));
+    if (r.exit !== 0) return { ok: false, diagnostics: cleanDiagnostics(r.text) };
+    const bytes = api.memfs.getFileContents(out);
+    const text = typeof bytes === 'string' ? bytes : new TextDecoder().decode(bytes);
+    return { ok: true, text };
+}
+
 async function warmup() {
     await init();
     await api.getModule('clang');
@@ -267,6 +305,18 @@ self.onmessage = async ev => {
                 break;
             case 'build':
                 result = await build(payload.file, payload.source, payload.options || {});
+                break;
+            case 'assemble':
+                result = await assemble(payload.file, payload.source, payload.options || {});
+                break;
+            case 'listfs':
+                await init();
+                result = { files: listFs() };
+                break;
+            case 'readfile':
+                await init();
+                try { result = { text: api.memfs.getFileContents(payload.path) }; }
+                catch (e) { result = { text: null }; }
                 break;
             case 'run':
                 result = await run(payload.id, payload.exeName, payload.stdin, payload.stopOnInput);

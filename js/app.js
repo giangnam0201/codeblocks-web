@@ -314,24 +314,94 @@ App.gotoLine = function (line) {
 
 /* ============================================================== watches */
 
+/* The Watches pane: the locals of the frame the debugger stopped in, then the
+   globals - the same split the desktop debugger shows.  Structures, arrays and
+   vectors expand. */
 App.updateWatches = function (interp) {
     const box = document.getElementById('watch-body');
     if (!box) return;
     box.innerHTML = '';
     if (!interp) return;
-    const rows = [];
-    let scope = interp.currentScope;
-    void scope;
-    // locals of the innermost frame are not tracked separately; show the
-    // globals plus anything the user asked to watch
-    for (const [name, sl] of interp.globals.vars) rows.push([name, CPP.valueToString(sl.v)]);
-    rows.forEach(([n, v]) => {
+
+    const describe = v => {
+        if (!v) return '';
+        switch (v.k) {
+            case 'a': return `[${v.a.length} items]`;
+            case 'v': return `vector<> [${v.a.length} items]`;
+            case 'o': return v.cls === '#pair' ? 'pair' : `${v.cls}`;
+            case 'm': return `map [${v.e.length} entries]`;
+            case 'set': return `set [${v.e.length} entries]`;
+            case 'p': return v.a ? '0x' + (0x60000000 + v.i * 4).toString(16) : '0x0 (null)';
+            case 's': return '"' + v.v + '"';
+            default: return CPP.valueToString(v);
+        }
+    };
+    const children = v => {
+        if (!v) return [];
+        if (v.k === 'a' || v.k === 'v') return v.a.map((s, i) => ['[' + i + ']', s.v]);
+        if (v.k === 'o') return Object.keys(v.f).map(k => [k, v.f[k].v]);
+        if (v.k === 'm') return v.e.map((p, i) => ['[' + i + ']', p.slot.v]);
+        if (v.k === 'set') return v.e.map((x, i) => ['[' + i + ']', x]);
+        return [];
+    };
+
+    const draw = (name, value, depth, parent) => {
+        const kids = depth < 3 ? children(value) : [];
         const row = document.createElement('div');
         row.className = 'tree-row';
-        row.style.paddingLeft = '16px';
-        row.textContent = `${n} = ${v}`;
-        box.appendChild(row);
-    });
+        row.style.paddingLeft = (depth * 14 + 4) + 'px';
+        const tw = document.createElement('span');
+        tw.className = 'twisty';
+        tw.textContent = kids.length ? (value.__open ? '▾' : '▸') : '';
+        if (kids.length) {
+            tw.style.cursor = 'pointer';
+            tw.addEventListener('mousedown', ev => {
+                ev.stopPropagation();
+                value.__open = !value.__open;
+                App.updateWatches(interp);
+            });
+        }
+        row.appendChild(tw);
+        row.appendChild(document.createTextNode(`${name} = ${describe(value)}`));
+        parent.appendChild(row);
+        if (kids.length && value.__open)
+            kids.forEach(([k, v]) => draw(k, v, depth + 1, parent));
+    };
+
+    const section = title => {
+        const h = document.createElement('div');
+        h.className = 'tree-row bold';
+        h.style.paddingLeft = '4px';
+        h.textContent = title;
+        box.appendChild(h);
+        return h;
+    };
+
+    // locals: walk the live scope chain up to (but not including) the globals
+    const locals = [];
+    let s = interp.currentScope;
+    const seen = new Set();
+    while (s && s !== interp.globals) {
+        for (const [name, slot] of s.vars) {
+            if (seen.has(name) || name === 'this') continue;
+            seen.add(name);
+            locals.push([name, slot.v]);
+        }
+        s = s.parent;
+    }
+    section(`Local variables (${locals.length})`);
+    if (!locals.length) {
+        const none = document.createElement('div');
+        none.className = 'tree-row';
+        none.style.cssText = 'padding-left:18px;color:#666';
+        none.textContent = 'no locals in this frame';
+        box.appendChild(none);
+    }
+    locals.forEach(([n, v]) => draw(n, v, 1, box));
+
+    const globals = Array.from(interp.globals.vars).filter(([n]) => !seen.has(n));
+    section(`Global variables (${globals.length})`);
+    globals.forEach(([n, sl]) => draw(n, sl.v, 1, box));
 };
 
 App.refreshBreakpointList = function () {
@@ -464,10 +534,21 @@ App.refreshTrees = function () {
         }]);
     }
 
+    /* The Files tab shows the build directory as it really is: the sources,
+       plus whatever the last build actually produced. */
     if (App.treeFiles) {
+        const kb = n => n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
+        const artifacts = (App.buildArtifacts || []).map(a => ({
+            label: `${a.path}  (${kb(a.size)})`,
+            icon: 'assets/icons/tree/' + (a.kind === 'source' ? 'file.svg' : 'file-readonly.svg'),
+            children: [],
+        }));
         App.treeFiles.setRoots([{
             label: App.projectPath, icon: 'assets/icons/tree/folder_open.svg', expanded: true,
-            children: App.files.map(fileNode),
+            children: App.files.map(fileNode).concat(artifacts.length ? [{
+                label: 'Build output', icon: 'assets/icons/tree/vfolder_open.svg',
+                expanded: true, children: artifacts,
+            }] : []),
         }]);
     }
 
@@ -715,24 +796,22 @@ App.command = async function (id, extra) {
         case 'idEditUnfoldAll': if (cm) cm.execCommand('unfoldAll'); return;
 
         /* ---- Search ---- */
-        case 'idSearchFind': if (cm) { cm.focus(); cm.execCommand('find'); } return;
-        case 'idSearchFindNext': if (cm) { cm.focus(); cm.execCommand('findNext'); } return;
-        case 'idSearchFindPrevious': if (cm) { cm.focus(); cm.execCommand('findPrev'); } return;
-        case 'idSearchReplace': if (cm) { cm.focus(); cm.execCommand('replace'); } return;
+        case 'idSearchFind': return Features.findDialog(false);
+        case 'idSearchReplace': return Features.findDialog(true);
+        case 'idSearchFindNext':
+            Features.findState.direction = 'down';
+            return Features.doFind();
+        case 'idSearchFindPrevious':
+            Features.findState.direction = 'up';
+            return Features.doFind();
         case 'idSearchGotoLine': {
             if (!cm) return;
             const n = await UI.textEntry('Line: (1 - ' + cm.lineCount() + ')', 'Goto line', '');
             if (n) App.gotoLine(parseInt(n, 10));
             return;
         }
-        case 'idMenuGotoFile': {
-            const n = await UI.textEntry('File name:', 'Goto file', '');
-            if (n) {
-                const target = App.files.find(x => x.name.toLowerCase().includes(n.toLowerCase()));
-                if (target) App.nbEditors.select(target.key);
-            }
-            return;
-        }
+        case 'idMenuGotoFile': return Features.gotoFileDialog();
+        case 'idFileNewClass': return Features.classWizard();
 
         /* ---- View ---- */
         case 'idViewManager': App.togglePaneVisible('management'); return;
@@ -965,75 +1044,207 @@ Dialogs.about = function () {
     w.style.height = 'auto';
 };
 
-Dialogs.tipOfTheDay = function () {
-    const tips = [
-        'You can drag and drop files from the file manager into the editor.',
-        'Press Ctrl+Shift+C to comment the selected block of code.',
-        'You can build and run your program with a single keystroke: F9.',
-        'Click in the left margin next to a line number to set a breakpoint.',
-        'The "Management" panel can be resized by dragging its right border.',
-    ];
+/* Tip of the Day, reading the tips Code::Blocks itself ships in src/tips.txt. */
+App.tips = null;
+Dialogs.tipOfTheDay = async function () {
+    if (!App.tips) {
+        try {
+            const r = await fetch('assets/tips.txt');
+            App.tips = (await r.text()).split('\n').map(s => s.trim()).filter(Boolean);
+        } catch (e) {
+            App.tips = ['You can build and run your program with a single keystroke: F9'];
+        }
+    }
+    let i = Math.floor(Math.random() * App.tips.length);
+
     const body = document.createElement('div');
     body.style.cssText = 'display:flex;gap:12px;';
-    body.innerHTML = `<img src="assets/icons/idea.svg" style="width:48px;height:48px">
-      <div><b>Did you know...</b><br><br>${tips[Math.floor(Math.random() * tips.length)]}</div>`;
+    const text = document.createElement('div');
+    text.innerHTML = `<b>Did you know...</b><br><br><span id="tip-text">${App.tips[i]}</span>
+        <label style="display:block;margin-top:14px">
+          <input type="checkbox" id="tip-startup" checked> Show tips at startup</label>`;
+    body.innerHTML = '<img src="assets/icons/idea.svg" style="width:48px;height:48px;flex:none">';
+    body.appendChild(text);
+
     const w = UI.window({
-        title: 'Tip of the Day', icon: 'assets/codeblocks.png', width: 460,
+        title: 'Tip of the Day', icon: 'assets/codeblocks.png', width: 470,
         minimizable: false, body,
-        buttons: [{ label: 'Close', onClick: () => w.remove() }],
+        buttons: [
+            {
+                label: 'Next tip',
+                onClick: () => {
+                    i = (i + 1) % App.tips.length;
+                    document.getElementById('tip-text').textContent = App.tips[i];
+                },
+            },
+            {
+                label: 'Close',
+                onClick: () => {
+                    const cb = document.getElementById('tip-startup');
+                    localStorage.setItem('cbweb.tips', cb && cb.checked ? '1' : '0');
+                    w.remove();
+                },
+            },
+        ],
     });
     w.style.height = 'auto';
 };
 
-Dialogs.plugins = function () {
+/* Manage plugins, listing the plugins this source tree actually ships (read
+   from their manifest.xml files) and letting the ones we implement be turned
+   on and off for real. */
+App.pluginState = { Abbreviations: true, 'Occurrences highlighting': true,
+                    Autosave: true, 'Code statistics': true, 'To-Do list': true,
+                    'Source code formatter (AStyle)': true, 'BYO Games': true,
+                    'Incremental search': true, BrowseTracker: true,
+                    'Thread search': true, DoxyBlocks: true, 'Code completion': true };
+
+Dialogs.plugins = async function () {
+    let list = [];
+    try {
+        const r = await fetch('assets/plugins.json');
+        list = await r.json();
+    } catch (e) { /* fall back to what we implement */ }
+    const implemented = Object.keys(App.pluginState);
+    for (const name of implemented)
+        if (!list.some(p => p.name === name)) list.push({ name, version: '1.0', description: '' });
+    list.sort((a, b) => a.name.localeCompare(b.name));
+
     const body = document.createElement('div');
-    const list = ['Compiler', 'Debugger', 'Code completion', 'Source code formatter (AStyle)',
-        'Abbreviations', 'Autosave', 'Class wizard', 'Code statistics', 'File extension handler',
-        'Files extension handler', 'Occurrences highlighting', 'Open files list', 'Scripted wizard',
-        'Symbol table plugin', 'To-Do list', 'XP Look and Feel'];
-    body.innerHTML = '<table class="log-grid"><thead><tr><th style="width:26px"></th><th>Title</th>' +
-        '<th>Version</th></tr></thead><tbody>' +
-        list.map(n => `<tr><td><input type="checkbox" checked disabled></td><td>${n}</td><td>1.0</td></tr>`).join('') +
-        '</tbody></table>';
+    body.innerHTML =
+        '<div style="margin-bottom:6px">Plugins shipped with Code::Blocks 25.03. ' +
+        'The ones in <b>bold</b> are implemented in the web edition and can be toggled.</div>' +
+        '<table class="log-grid"><thead><tr><th style="width:30px"></th><th>Title</th>' +
+        '<th style="width:60px">Version</th><th>Description</th></tr></thead><tbody>' +
+        list.map((p, i) => {
+            const on = App.pluginState[p.name];
+            const live = on !== undefined;
+            return `<tr><td><input type="checkbox" data-i="${i}" ${live ? (on ? 'checked' : '') : 'checked disabled'}></td>` +
+                   `<td${live ? ' style="font-weight:bold"' : ''}>${p.name}</td>` +
+                   `<td>${p.version}</td><td>${p.description || ''}</td></tr>`;
+        }).join('') + '</tbody></table>';
+
     const w = UI.window({
-        title: 'Manage plugins', icon: 'assets/icons/plug.svg', width: 480, height: 380, body,
-        buttons: [{ label: 'Close', onClick: () => w.remove() }],
+        title: 'Manage plugins', icon: 'assets/icons/plug.svg', width: 640, height: 420, body,
+        buttons: [
+            {
+                label: 'OK',
+                onClick: () => {
+                    body.querySelectorAll('input[data-i]:not([disabled])').forEach(cb => {
+                        const p = list[+cb.dataset.i];
+                        App.pluginState[p.name] = cb.checked;
+                    });
+                    App.highlightOccurrencesOn = !!App.pluginState['Occurrences highlighting'];
+                    App.refreshTrees();
+                    localStorage.setItem('cbweb.plugins', JSON.stringify(App.pluginState));
+                    w.remove();
+                },
+            },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
     });
+};
+
+/* Settings -> Environment: the options that genuinely apply here. */
+App.environment = {
+    showStartPage: true, tipsAtStartup: false, autosave: true, autosaveMins: 5,
+    tabsBottom: false, logsTabsBottom: false, showToolbars: true,
+    consoleFontSize: 14, terminalRows: 25,
+};
+
+Dialogs.environment = function () {
+    const e = App.environment;
+    const body = document.createElement('div');
+    const check = (k, label) => `<label style="display:block;margin:3px 0">
+        <input type="checkbox" data-k="${k}" ${e[k] ? 'checked' : ''}> ${label}</label>`;
+    body.innerHTML = `
+      <div style="font-weight:bold;margin-bottom:6px">General</div>
+      ${check('showStartPage', 'Show Start page at startup')}
+      ${check('tipsAtStartup', 'Show tips at startup')}
+      ${check('autosave', 'Autosave the workspace')}
+      <table style="border-spacing:6px;margin-top:4px">
+        <tr><td>Autosave every</td><td><input class="cb" type="number" min="1" max="60"
+            data-k="autosaveMins" value="${e.autosaveMins}" style="width:60px"> minutes</td></tr>
+        <tr><td>Console font size</td><td><input class="cb" type="number" min="8" max="28"
+            data-k="consoleFontSize" value="${e.consoleFontSize}" style="width:60px"> px</td></tr>
+      </table>
+      <div style="font-weight:bold;margin:10px 0 6px">Notebook appearance</div>
+      ${check('tabsBottom', 'Editor tabs at the bottom')}
+      ${check('logsTabsBottom', 'Logs tabs at the bottom')}`;
+
+    const w = UI.window({
+        title: 'Environment settings', icon: 'assets/codeblocks.png', width: 440, body,
+        buttons: [
+            {
+                label: 'OK',
+                onClick: () => {
+                    body.querySelectorAll('[data-k]').forEach(inp => {
+                        e[inp.dataset.k] = inp.type === 'checkbox' ? inp.checked
+                                                                  : (parseInt(inp.value, 10) || 0);
+                    });
+                    App.applyEnvironment();
+                    localStorage.setItem('cbweb.env', JSON.stringify(e));
+                    w.remove();
+                },
+            },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
+    });
+    w.style.height = 'auto';
+};
+
+App.applyEnvironment = function () {
+    const e = App.environment;
+    document.documentElement.style.setProperty('--console-size', e.consoleFontSize + 'px');
+    document.querySelectorAll('.console-screen').forEach(s => {
+        s.style.fontSize = e.consoleFontSize + 'px';
+    });
+    document.getElementById('nb-editors').classList.toggle('tabs-bottom', e.tabsBottom);
+    document.getElementById('nb-logs').classList.toggle('tabs-bottom', e.logsTabsBottom);
+    if (App.autosaveTimer) clearInterval(App.autosaveTimer);
+    if (e.autosave)
+        App.autosaveTimer = setInterval(() => App.persist(), Math.max(1, e.autosaveMins) * 60000);
+};
+
+/* Settings -> Debugger: the options the stepping engine honours. */
+App.debuggerSettings = { stopOnMain: false, evalTooltips: true, maxSteps: 5000000 };
+
+Dialogs.debuggerSettings = function () {
+    const d = App.debuggerSettings;
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div style="font-weight:bold;margin-bottom:6px">GDB/CDB debugger : Default</div>
+      <label style="display:block;margin:3px 0"><input type="checkbox" data-k="stopOnMain"
+        ${d.stopOnMain ? 'checked' : ''}> Run to main() when the debugger starts</label>
+      <label style="display:block;margin:3px 0"><input type="checkbox" data-k="evalTooltips"
+        ${d.evalTooltips ? 'checked' : ''}> Evaluate expression under cursor (tooltips)</label>
+      <table style="border-spacing:6px;margin-top:6px">
+        <tr><td>Step limit before aborting</td><td><input class="cb" type="number"
+          data-k="maxSteps" value="${d.maxSteps}" style="width:110px"></td></tr>
+      </table>`;
+    const w = UI.window({
+        title: 'Debugger settings', icon: 'assets/icons/dbgrun.svg', width: 440, body,
+        buttons: [
+            {
+                label: 'OK',
+                onClick: () => {
+                    body.querySelectorAll('[data-k]').forEach(inp => {
+                        d[inp.dataset.k] = inp.type === 'checkbox' ? inp.checked
+                                                                   : (parseInt(inp.value, 10) || 0);
+                    });
+                    w.remove();
+                },
+            },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
+    });
+    w.style.height = 'auto';
 };
 
 Dialogs.settingsStub = function (id) {
-    const titles = {
-        idSettingsEnvironment: 'Environment settings',
-        idSettingsEditor: 'Configure editor',
-        idSettingsDebugger: 'Debugger settings',
-        idSettingsScripting: 'Scripting settings',
-    };
-    const body = document.createElement('div');
-    body.innerHTML = `<p>The web edition keeps the defaults for these settings.</p>
-        <p style="color:#555">Editor font, colours and the C/C++ lexer are taken from the
-        stock Code::Blocks configuration.</p>`;
-    const w = UI.window({
-        title: titles[id] || 'Settings', icon: 'assets/codeblocks.png', width: 460,
-        minimizable: false, body,
-        buttons: [{ label: 'OK', onClick: () => w.remove() }],
-    });
-    w.style.height = 'auto';
-};
-
-Dialogs.compilerSettings = function () {
-    const body = document.createElement('div');
-    body.innerHTML = `
-      <div style="margin-bottom:8px">Selected compiler</div>
-      <select class="cb" style="width:100%"><option>GNU GCC Compiler</option></select>
-      <div style="margin-top:12px">Compiler flags for target <b>${App.activeTarget}</b>:</div>
-      <textarea class="cb" style="width:100%;height:90px;font-family:var(--mono-font)">${
-        App.activeTarget === 'Debug' ? '-Wall -fexceptions -g' : '-Wall -fexceptions -O2'}</textarea>`;
-    const w = UI.window({
-        title: 'Compiler settings', icon: 'assets/icons/compile.svg', width: 520, body,
-        buttons: [{ label: 'OK', onClick: () => w.remove() },
-                  { label: 'Cancel', onClick: () => w.remove() }],
-    });
-    w.style.height = 'auto';
+    if (id === 'idSettingsEnvironment') return Dialogs.environment();
+    if (id === 'idSettingsDebugger') return Dialogs.debuggerSettings();
+    return Features.scriptConsole();
 };
 
 Dialogs.selectTarget = function () {

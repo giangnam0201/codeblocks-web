@@ -183,8 +183,21 @@ next/previous project, build options, and Export Makefile (writes a real
 Makefile for the open sources).
 
 **Debugger** — breakpoints, step into/over/out, run to cursor, and the
-debugging windows: call stack, CPU registers, disassembly, memory dump,
-running threads, watches and breakpoints, plus the Information dialogs.
+debugging windows. These show real data, not decoration: **Watches** lists the
+locals of the frame you stopped in (structs, arrays, vectors and maps expand)
+followed by the globals; **Call stack** is the live frame list; **Disassembly**
+runs `clang -S` and shows the actual generated assembly, mangled symbols and
+all; **Examine memory** dumps the real bytes of a variable in scope. The CPU
+Registers window reports the interpreter's true state and says plainly that a
+tree interpreter has no x86 registers, rather than inventing values.
+
+**Dialogs that do something** — Tip of the Day reads the tips Code::Blocks
+ships in `src/tips.txt`; Manage plugins lists the 44 plugins from their real
+`manifest.xml` files and toggles the ones implemented here; Environment
+settings drive autosave, console font and tab placement; the Find and Replace
+dialogs are the desktop ones, with match case, whole word, regular expression,
+direction and scope; Goto file is a filtered list; and the Class wizard
+generates a real header and implementation pair.
 
 **Right-click menu** — the editor's context menu is the desktop one: open the
 `#include` under the caret, find occurrences of the selection, run to cursor,

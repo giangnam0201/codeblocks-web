@@ -1509,6 +1509,8 @@ class Interpreter {
         if (!node) return;
         this.steps++;
         if (node.line) {
+            // the debugger reads locals out of the scope that is live here
+            this.currentScope = scope;
             const sig = yield { t: 'stmt', line: node.line };
             if (sig === 'abort') throw new RuntimeError('aborted', node.line);
         }

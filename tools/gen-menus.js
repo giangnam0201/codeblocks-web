@@ -196,6 +196,12 @@ for (const it of buildMenu.items) {
 const projectIdx = menus.findIndex(m => m.id === 'menu_project');
 menus.splice(projectIdx + 1, 0, buildMenu, debugMenu);
 
+// File -> New: the Class wizard entry the plugin adds.
+const fileNew = file.items.find(i => i.id === 'idFileNew');
+if (fileNew) fileNew.items.push(
+    { type: 'item', id: 'idFileNewClass', label: 'Class...', mnemonic: -1,
+      help: 'Create a new class (header and implementation)' });
+
 // The Tools menu is populated by the ToolsPlugin at runtime.
 const tools = menus.find(m => m.id === 'menu_tools');
 tools.items.push(

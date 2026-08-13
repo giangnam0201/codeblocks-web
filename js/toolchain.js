@@ -98,6 +98,15 @@ Toolchain.release = function (id) {
     if (id) Toolchain.call('release', { id }).catch(() => {});
 };
 
+/* Real assembly for the Disassembly window. */
+Toolchain.assemble = function (fileName, source, options) {
+    return Toolchain.call('assemble', { file: fileName, source, options: options || {} });
+};
+
+/* What the build left in the compiler's file system. */
+Toolchain.listFiles = function () { return Toolchain.call('listfs', {}); };
+Toolchain.readFile = function (path) { return Toolchain.call('readfile', { path }); };
+
 /* Turns clang diagnostics into records for the Build messages grid. */
 Toolchain.parseDiagnostics = function (text, fileName) {
     const out = [];

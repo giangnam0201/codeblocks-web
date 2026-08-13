@@ -114,6 +114,11 @@ Build.doBuild = async function (options) {
         Build.log(`g++.exe  -o ${exe} ${objDir}${base}.o\n`);
         Build.log(`Output file is ${exe} with size ${(built.size / 1024).toFixed(2)} KB\n`);
         Build.lastBuild = { source, exe, exeName, target, file, flags, id: built.id };
+        // let the Files panel show what the build produced
+        Toolchain.listFiles().then(r => {
+            App.buildArtifacts = r.files || [];
+            App.refreshTrees();
+        }).catch(() => {});
     } else {
         Build.lastBuild = null;
     }
@@ -340,6 +345,7 @@ Debugger.onLine = async function (line, interp) {
     Debugger.state = 'paused';
     Debugger.currentLine = line;
     Debugger.interp = interp;
+    Debugger.scope = interp.currentScope;      // for Watches and Examine memory
     App.showDebugLine(line);
     App.updateDebugUI();
     App.updateWatches(interp);

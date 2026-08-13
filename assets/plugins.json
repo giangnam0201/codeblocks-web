@@ -1,0 +1,222 @@
+[
+ {
+  "name": "Autosave",
+  "version": "1.0",
+  "description": "Saves your work in regular intervals"
+ },
+ {
+  "name": "DisplayEvents",
+  "version": "1.0",
+  "description": "Display events, that are registered with RegisterEventSink, in 'Code::Blocks Debug' log"
+ },
+ {
+  "name": "Header Guard",
+  "version": "1.0",
+  "description": "For the lazy."
+ },
+ {
+  "name": "LogHacker",
+  "version": "1.0",
+  "description": "Only the fool and the wizard use this tool. Which one are you?"
+ },
+ {
+  "name": "ModPoller",
+  "version": "1.0",
+  "description": "Polls for external modification more often"
+ },
+ {
+  "name": "Open files list",
+  "version": "1.0",
+  "description": "View open files list"
+ },
+ {
+  "name": "tidycmt",
+  "version": "1.0",
+  "description": "Format comments to standard."
+ },
+ {
+  "name": "Windows XP Look'n'Feel",
+  "version": "1.0",
+  "description": "This plugin creates a manifest file that makes use of common controls 6.0 under Windows XP"
+ },
+ {
+  "name": "Automatic versioning",
+  "version": "1.0",
+  "description": "Auto increments the version and build number of your application every time\na change has b"
+ },
+ {
+  "name": "BrowseTracker",
+  "version": "1.0",
+  "description": "Browse to previous source positions"
+ },
+ {
+  "name": "BYO Games",
+  "version": "1.0",
+  "description": "Collection of games for C::B IDE"
+ },
+ {
+  "name": "Koders query",
+  "version": "1.0",
+  "description": "This plugin queries the Koders webpage for keywords"
+ },
+ {
+  "name": "Code snippets",
+  "version": "1.0",
+  "description": "Code Snippets allows you to create and save small pieces of code (snippets) for later use."
+ },
+ {
+  "name": "Copy Strings to clipboard",
+  "version": "1.0",
+  "description": "This plugin copies all the strings in the current editor, into the clipboard.\nDuplicated s"
+ },
+ {
+  "name": "Cscope",
+  "version": "1.0",
+  "description": ""
+ },
+ {
+  "name": "DevPak updater/installer",
+  "version": "1.0",
+  "description": "Installs selected DevPaks from the Internet"
+ },
+ {
+  "name": "DoxyBlocks",
+  "version": "1.0",
+  "description": "\nDoxygen integration for Code::Blocks.\nSupported doxygen version: 1.7.3"
+ },
+ {
+  "name": "DragScroll",
+  "version": "1.0",
+  "description": "Mouse Drag and Scroll using Right or Middle Mouse Key"
+ },
+ {
+  "name": "EditorConfig plugin for Code::Blocks",
+  "version": "1.0",
+  "description": "EditorConfig plugin for Code::Blocks"
+ },
+ {
+  "name": "Editor tweaks",
+  "version": "1.0",
+  "description": ""
+ },
+ {
+  "name": "Environment variables",
+  "version": "1.0",
+  "description": "Sets up environment variables within the focus of Code::Blocks."
+ },
+ {
+  "name": "File manager",
+  "version": "1.0",
+  "description": ""
+ },
+ {
+  "name": "FortranProject",
+  "version": "1.0",
+  "description": "This plugin adds Fortran support (symbol browser, code-completion etc.) for C::B IDE."
+ },
+ {
+  "name": "Header Fixup",
+  "version": "1.0",
+  "description": "Automatically adds missing includes and/or forward declarations to C++ source files within"
+ },
+ {
+  "name": "Help plugin",
+  "version": "1.0",
+  "description": "This plugin is used to add a list of help files to the Help menu so you can have them hand"
+ },
+ {
+  "name": "HexEditor",
+  "version": "1.0",
+  "description": ""
+ },
+ {
+  "name": "Incremental search",
+  "version": "1.0",
+  "description": "Searches and highlights a marked text incrementally within the open editor."
+ },
+ {
+  "name": "Keyboard shortcuts",
+  "version": "1.0",
+  "description": "Code::Blocks KeyBinder\n\n\nNOTE: Ctrl+Alt+{UP|DOWN} is unsupported."
+ },
+ {
+  "name": "Library finder",
+  "version": "1.0",
+  "description": "Tool automatically searching for installed libraries and adding them to project"
+ },
+ {
+  "name": "MouseSap",
+  "version": "1.0",
+  "description": "Middle Mouse Select and Paste\n\nThis plugin adds editor functions using the shiftKey, ctrlK"
+ },
+ {
+  "name": "Nassi-Shneiderman diagram",
+  "version": "1.0",
+  "description": "A Nassi-Shneiderman diagram generator"
+ },
+ {
+  "name": "Project options manipulator",
+  "version": "1.0",
+  "description": "Mass manipulate project / target options in a workspace."
+ },
+ {
+  "name": "Regular expressions testbed",
+  "version": "1.0",
+  "description": "A testbed for regular expressions."
+ },
+ {
+  "name": "Reopen editor",
+  "version": "1.0",
+  "description": "Reopens a closed editor via hotkey, menu-item or from a list."
+ },
+ {
+  "name": "Random generator",
+  "version": "1.0",
+  "description": "Replaces parts of the code with random numbers or character sequences when saving the file"
+ },
+ {
+  "name": "Source Exporter",
+  "version": "1.0",
+  "description": "Plugin to export syntax highlighted source files to HTML, RTF, ODT or PDF."
+ },
+ {
+  "name": "Spell checker",
+  "version": "1.0",
+  "description": ""
+ },
+ {
+  "name": "Thread search",
+  "version": "1.0",
+  "description": "Multi-threaded 'Search in files' with preview window."
+ },
+ {
+  "name": "ToolsPlus",
+  "version": "1.0",
+  "description": ""
+ },
+ {
+  "name": "wxSmith",
+  "version": "1.0",
+  "description": "RAD tool used to create wxWidgets forms"
+ },
+ {
+  "name": "wxSmith - Aui",
+  "version": "1.0",
+  "description": "wxAUI extension for wxSmith"
+ },
+ {
+  "name": "wxSmith - Contrib Items",
+  "version": "1.0",
+  "description": "Set of contrib wxWidgets items for wxSmith"
+ },
+ {
+  "name": "wxsSmithIExplore - Internet Explorer for MSW",
+  "version": "1.0",
+  "description": "Internet Explorer Active-X Panel"
+ },
+ {
+  "name": "wxsSmithSTC - Scintilla Text Control",
+  "version": "1.0",
+  "description": "Components For wxScintilla Editing"
+ }
+]

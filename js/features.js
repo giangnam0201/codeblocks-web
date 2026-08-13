@@ -688,7 +688,7 @@ Features.scriptConsole = function () {
 
 Features.debugWindow = function (which) {
     const titles = {
-        registers: 'CPU Registers', disassembly: 'Disassembly', memory: 'Memory dump',
+        registers: 'CPU Registers', disassembly: 'Disassembly', memory: 'Examine memory',
         threads: 'Running threads', callstack: 'Call stack',
     };
     const id = 'dbgwin-' + which;
@@ -704,52 +704,144 @@ Features.debugWindow = function (which) {
         body.innerHTML = '<table class="log-grid"><thead><tr><th>Nr</th><th>Function</th>' +
             '<th>File</th><th>Line</th></tr></thead><tbody>' +
             (frames.length
-                ? frames.slice().reverse().map((f, i) =>
-                    `<tr><td>#${i}</td><td>${f.name}()</td>` +
-                    `<td>${Build.lastBuild ? Build.lastBuild.file.name : ''}</td><td>${f.line}</td></tr>`).join('')
+                ? frames.slice().reverse().map((fr, i) =>
+                    `<tr><td>#${i}</td><td>${fr.name}()</td>` +
+                    `<td>${Build.lastBuild ? Build.lastBuild.file.name : ''}</td>` +
+                    `<td>${i === 0 ? Debugger.currentLine : fr.line}</td></tr>`).join('')
                 : '<tr><td colspan="4">The debugger is not running.</td></tr>') +
             '</tbody></table>';
+
     } else if (which === 'registers') {
-        const regs = ['eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp', 'esp', 'eip'];
-        body.innerHTML = '<table class="log-grid"><thead><tr><th>Register</th><th>Hex</th>' +
-            '<th>Decimal</th></tr></thead><tbody>' +
-            regs.map((r, i) => {
-                const v = interp ? (interp.steps * (i + 7)) & 0xffff : 0;
-                return `<tr><td>${r}</td><td>0x${v.toString(16).padStart(8, '0')}</td><td>${v}</td></tr>`;
-            }).join('') + '</tbody></table>' +
-            '<div style="padding:6px;color:#555">The web edition executes a statement tree, not ' +
-            'machine code, so these are the interpreter\'s counters rather than real CPU registers.</div>';
+        /* This target is a stack machine executing a statement tree, so it has
+           no x86 registers.  Rather than invent values, show the machine state
+           that genuinely exists. */
+        const rows = interp ? [
+            ['pc (source line)', Debugger.currentLine],
+            ['call depth', interp.callDepth],
+            ['frames on stack', interp.callStack.length],
+            ['steps executed', interp.steps],
+            ['globals', interp.globals.vars.size],
+            ['stdin pending', interp.input.length + ' byte(s)'],
+            ['state', Debugger.state],
+        ] : [];
+        body.innerHTML = '<table class="log-grid"><thead><tr><th>Machine state</th>' +
+            '<th>Value</th></tr></thead><tbody>' +
+            (rows.length ? rows.map(([k, v]) =>
+                `<tr><td>${k}</td><td>${v}</td></tr>`).join('')
+                : '<tr><td colspan="2">The debugger is not running.</td></tr>') +
+            '</tbody></table>' +
+            '<div style="padding:6px;color:#555">The stepping engine is a tree ' +
+            'interpreter, not machine code, so this is its real state rather than ' +
+            'invented register values. Use Disassembly for the generated machine code.</div>';
+
     } else if (which === 'disassembly') {
-        const line = Debugger.currentLine;
-        const src = Build.lastBuild ? Build.lastBuild.file.text().split('\n') : [];
-        body.innerHTML = '<div style="padding:4px">' +
-            (src.length
-                ? src.map((t, i) => `<div${i + 1 === line ? ' style="background:#a0a0ff"' : ''}>` +
-                    `0x${(0x401000 + i * 16).toString(16)}&nbsp;&nbsp;${String(i + 1).padStart(4)}&nbsp;&nbsp;` +
-                    `${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>`).join('')
-                : 'Nothing to disassemble.') + '</div>';
-    } else if (which === 'memory') {
-        let html = '';
-        for (let r = 0; r < 16; r++) {
-            const addr = 0x60000000 + r * 16;
-            const bytes = [];
-            for (let b = 0; b < 16; b++) bytes.push(((addr + b) * 7 & 0xff).toString(16).padStart(2, '0'));
-            html += `0x${addr.toString(16)}: ${bytes.join(' ')}\n`;
+        body.innerHTML = '<div style="padding:6px">Generating assembly with clang...</div>';
+        const file = (Build.lastBuild && Build.lastBuild.file) || App.activeSourceFile();
+        if (file) {
+            Toolchain.assemble(file.name, file.text(), {
+                std: (App.buildOptions || {}).std || 'c++17',
+                opt: App.activeTarget === 'Debug' ? '-O0' : '-O2',
+            }).then(r => {
+                if (!r.ok) {
+                    body.innerHTML = '<pre style="margin:0;color:#a00">' +
+                        (r.diagnostics || 'could not produce assembly') + '</pre>';
+                    return;
+                }
+                const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                const lines = r.text.split('\n');
+                let addr = 0x401000;
+                body.innerHTML = '<pre style="margin:0">' + lines.map(l => {
+                    if (/^\s*[.#]/.test(l) || !l.trim()) return `<span style="color:#888">${esc(l)}</span>`;
+                    if (/^\S+:/.test(l)) return `<b>${esc(l)}</b>`;
+                    const a = '0x' + (addr).toString(16);
+                    addr += 4;
+                    return `<span style="color:#888">${a}</span>  ${esc(l)}`;
+                }).join('\n') + '</pre>';
+            });
+        } else {
+            body.innerHTML = '<div style="padding:6px">Open a source file first.</div>';
         }
-        body.innerHTML = `<pre style="margin:0">${html}</pre>`;
+
+    } else if (which === 'memory') {
+        /* Code::Blocks' Examine memory takes an expression; here it dumps the
+           real bytes of a variable the stepping engine currently holds. */
+        const bar = el('div');
+        bar.style.cssText = 'display:flex;gap:4px;padding:4px;align-items:center;';
+        bar.innerHTML = '<span>Address/variable:</span>';
+        const input = el('input', 'cb');
+        input.style.width = '160px';
+        const go = el('button', 'cb', 'Go');
+        bar.appendChild(input);
+        bar.appendChild(go);
+        const dump = el('pre');
+        dump.style.cssText = 'margin:0;padding:4px;';
+        dump.textContent = interp ? 'Enter the name of a variable in scope.'
+                                  : 'The debugger is not running.';
+        body.appendChild(bar);
+        body.appendChild(dump);
+
+        const show = () => {
+            const name = input.value.trim();
+            if (!name || !Debugger.scope) return;
+            const slot = Debugger.scope.lookup(name);
+            if (!slot) { dump.textContent = `No variable named "${name}" in scope.`; return; }
+            const bytes = Features.valueBytes(slot.v);
+            let out = `${name} = ${CPP.valueToString(slot.v)}\n${bytes.length} byte(s)\n\n`;
+            for (let i = 0; i < bytes.length; i += 16) {
+                const row = bytes.slice(i, i + 16);
+                out += '0x' + (0x60000000 + i).toString(16) + ': ' +
+                       row.map(b => b.toString(16).padStart(2, '0')).join(' ').padEnd(48) + ' ' +
+                       row.map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join('') + '\n';
+            }
+            dump.textContent = out;
+        };
+        go.addEventListener('click', show);
+        input.addEventListener('keydown', ev => { if (ev.key === 'Enter') show(); });
+
     } else if (which === 'threads') {
         body.innerHTML = '<table class="log-grid"><thead><tr><th>Active</th><th>Nr</th>' +
             '<th>Info</th></tr></thead><tbody><tr><td>*</td><td>1</td>' +
             `<td>main thread${Debugger.active ? ' (stopped at line ' + Debugger.currentLine + ')' : ''}</td>` +
-            '</tr></tbody></table>';
+            '</tr></tbody></table>' +
+            '<div style="padding:6px;color:#555">This target has a single thread: ' +
+            'wasm32-wasi here is built without thread support.</div>';
     }
 
-    const w = UI.window({
+    UI.window({
         id, title: titles[which] || which, icon: 'assets/icons/dbgwindow.svg',
-        width: which === 'memory' || which === 'disassembly' ? 560 : 420,
-        height: 320, body,
+        width: which === 'memory' || which === 'disassembly' ? 620 : 440,
+        height: 340, body,
     });
-    void w;
+};
+
+/* The raw bytes behind an interpreter value, for the memory dump. */
+Features.valueBytes = function (v) {
+    const buf = [];
+    const push32 = n => { for (let i = 0; i < 4; i++) buf.push((n >> (i * 8)) & 0xff); };
+    if (!v) return buf;
+    switch (v.k) {
+        case 'n': {
+            if (v.t === 'double' || v.t === 'float') {
+                const d = new DataView(new ArrayBuffer(8));
+                d.setFloat64(0, v.v, true);
+                for (let i = 0; i < 8; i++) buf.push(d.getUint8(i));
+            } else if (v.t === 'char' || v.t === 'bool') buf.push(v.v & 0xff);
+            else push32(v.v | 0);
+            return buf;
+        }
+        case 's':
+            for (const ch of v.v) buf.push(ch.charCodeAt(0) & 0xff);
+            buf.push(0);
+            return buf;
+        case 'a': case 'v':
+            v.a.forEach(s => buf.push(...Features.valueBytes(s.v)));
+            return buf;
+        case 'o':
+            for (const key in v.f) buf.push(...Features.valueBytes(v.f[key].v));
+            return buf;
+        default:
+            return buf;
+    }
 };
 
 Features.debuggerInfo = function (kind) {
@@ -1067,6 +1159,302 @@ Features.playSnake = function () {
         },
     });
     win.querySelector('.body').style.cssText = 'flex:1;overflow:hidden;padding:4px;';
+};
+
+/* ===================================================== find / replace dialog */
+
+/* Code::Blocks' Find and Replace dialogs, with the options the desktop IDE
+   offers, rather than the editor component's one-line prompt. */
+Features.findState = {
+    term: '', replace: '', matchCase: false, wholeWord: false, regex: false,
+    direction: 'down', scope: 'file', startFrom: 'cursor',
+};
+
+Features.findDialog = function (replaceMode) {
+    const cm = cmOf();
+    const s = Features.findState;
+    if (cm && cm.somethingSelected()) s.term = cm.getSelection().split('\n')[0];
+
+    const body = el('div');
+    body.innerHTML = `
+      <table style="border-spacing:6px;width:100%">
+        <tr><td style="width:110px">Text to search for:</td>
+            <td><input class="cb" id="fd-term" value="${(s.term || '').replace(/"/g, '&quot;')}" style="width:100%"></td></tr>
+        ${replaceMode ? `<tr><td>Replace with:</td>
+            <td><input class="cb" id="fd-repl" value="${(s.replace || '').replace(/"/g, '&quot;')}" style="width:100%"></td></tr>` : ''}
+      </table>
+      <div style="display:flex;gap:14px;margin-top:8px">
+        <fieldset style="border:1px solid #b5b5b5;padding:6px;flex:1">
+          <legend>Options</legend>
+          <label style="display:block"><input type="checkbox" id="fd-case" ${s.matchCase ? 'checked' : ''}> Match case</label>
+          <label style="display:block"><input type="checkbox" id="fd-word" ${s.wholeWord ? 'checked' : ''}> Match whole word</label>
+          <label style="display:block"><input type="checkbox" id="fd-regex" ${s.regex ? 'checked' : ''}> Regular expression</label>
+        </fieldset>
+        <fieldset style="border:1px solid #b5b5b5;padding:6px">
+          <legend>Direction</legend>
+          <label style="display:block"><input type="radio" name="fd-dir" value="up" ${s.direction === 'up' ? 'checked' : ''}> Up</label>
+          <label style="display:block"><input type="radio" name="fd-dir" value="down" ${s.direction === 'down' ? 'checked' : ''}> Down</label>
+        </fieldset>
+        <fieldset style="border:1px solid #b5b5b5;padding:6px">
+          <legend>Scope</legend>
+          <label style="display:block"><input type="radio" name="fd-scope" value="file" ${s.scope === 'file' ? 'checked' : ''}> Current file</label>
+          <label style="display:block"><input type="radio" name="fd-scope" value="open" ${s.scope === 'open' ? 'checked' : ''}> All open files</label>
+          <label style="display:block"><input type="radio" name="fd-scope" value="sel" ${s.scope === 'sel' ? 'checked' : ''}> Selected text</label>
+        </fieldset>
+      </div>`;
+
+    const read = () => {
+        s.term = body.querySelector('#fd-term').value;
+        if (replaceMode) s.replace = body.querySelector('#fd-repl').value;
+        s.matchCase = body.querySelector('#fd-case').checked;
+        s.wholeWord = body.querySelector('#fd-word').checked;
+        s.regex = body.querySelector('#fd-regex').checked;
+        s.direction = body.querySelector('input[name=fd-dir]:checked').value;
+        s.scope = body.querySelector('input[name=fd-scope]:checked').value;
+    };
+
+    const buttons = replaceMode
+        ? [{ label: 'Replace', onClick: () => { read(); Features.doReplace(false); } },
+           { label: 'Replace all', onClick: () => { read(); Features.doReplace(true); w.remove(); } },
+           { label: 'Find', onClick: () => { read(); Features.doFind(); } },
+           { label: 'Cancel', onClick: () => w.remove() }]
+        : [{ label: 'Find', onClick: () => { read(); Features.doFind(); } },
+           { label: 'Find all', onClick: () => { read(); Features.doFindAll(); w.remove(); } },
+           { label: 'Cancel', onClick: () => w.remove() }];
+
+    const w = UI.window({
+        title: replaceMode ? 'Replace' : 'Find', icon: 'assets/icons/filefind.svg',
+        width: 560, body, buttons,
+    });
+    w.style.height = 'auto';
+    const t = body.querySelector('#fd-term');
+    setTimeout(() => { t.focus(); t.select(); }, 0);
+    t.addEventListener('keydown', ev => { if (ev.key === 'Enter') { read(); Features.doFind(); } });
+};
+
+Features.searchQuery = function () {
+    const s = Features.findState;
+    if (s.regex) return new RegExp(s.term, s.matchCase ? '' : 'i');
+    if (s.wholeWord) {
+        const esc = s.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp('\\b' + esc + '\\b', s.matchCase ? '' : 'i');
+    }
+    return s.matchCase ? s.term : new RegExp(
+        s.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+};
+
+Features.doFind = function () {
+    const cm = cmOf();
+    const s = Features.findState;
+    if (!cm || !s.term) return;
+    const back = s.direction === 'up';
+    const query = Features.searchQuery();
+    const from = back ? cm.getCursor('from') : cm.getCursor('to');
+    let cur = cm.getSearchCursor(query, from, !s.matchCase);
+    if (!(back ? cur.findPrevious() : cur.findNext())) {
+        cur = cm.getSearchCursor(query, back ? null : { line: 0, ch: 0 }, !s.matchCase);
+        if (!(back ? cur.findPrevious() : cur.findNext())) {
+            UI.setStatus(0, `"${s.term}" not found`);
+            return;
+        }
+        UI.setStatus(0, 'Passed the end of the file, continued from the start');
+    }
+    cm.setSelection(cur.from(), cur.to());
+    cm.scrollIntoView({ from: cur.from(), to: cur.to() }, 60);
+    cm.focus();
+};
+
+Features.doFindAll = function () {
+    const s = Features.findState;
+    if (!s.term) return;
+    const files = s.scope === 'open' ? App.files : [App.activeFile()].filter(Boolean);
+    const rows = [];
+    files.forEach(f => {
+        const query = Features.searchQuery();
+        const cur = f.cm.getSearchCursor(query, { line: 0, ch: 0 }, !s.matchCase);
+        while (cur.findNext())
+            rows.push({ file: f, line: cur.from().line + 1, text: f.cm.getLine(cur.from().line).trim() });
+    });
+    Features.showSearchResults(`Search for "${s.term}"`, rows);
+};
+
+Features.doReplace = function (all) {
+    const cm = cmOf();
+    const s = Features.findState;
+    if (!cm || !s.term) return;
+    const query = Features.searchQuery();
+    if (!all) {
+        if (cm.somethingSelected()) {
+            const sel = cm.getSelection();
+            const hit = s.regex || !s.matchCase
+                ? new RegExp('^(?:' + (s.regex ? s.term : s.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) + ')$',
+                             s.matchCase ? '' : 'i').test(sel)
+                : sel === s.term;
+            if (hit) cm.replaceSelection(s.replace, 'around');
+        }
+        Features.doFind();
+        return;
+    }
+    const files = s.scope === 'open' ? App.files : [App.activeFile()].filter(Boolean);
+    let n = 0;
+    files.forEach(f => {
+        const cur = f.cm.getSearchCursor(query, { line: 0, ch: 0 }, !s.matchCase);
+        const edits = [];
+        while (cur.findNext()) edits.push({ from: cur.from(), to: cur.to() });
+        for (let i = edits.length - 1; i >= 0; i--) {
+            f.cm.replaceRange(s.replace, edits[i].from, edits[i].to);
+            n++;
+        }
+    });
+    UI.setStatus(0, `Replaced ${n} occurrence(s)`);
+};
+
+/* The Search results pane, as the grid Code::Blocks shows. */
+Features.showSearchResults = function (title, rows) {
+    const pane = App.logs.search;
+    pane.innerHTML = '';
+    const head = el('div');
+    head.style.cssText = 'font-weight:bold;padding:2px 0';
+    head.textContent = `${title}: ${rows.length} match(es) in ${new Set(rows.map(r => r.file.name)).size} file(s)`;
+    pane.appendChild(head);
+
+    const table = el('table', 'log-grid');
+    table.innerHTML = '<thead><tr><th style="width:150px">File</th><th style="width:50px">Line</th>' +
+                      '<th>Text</th></tr></thead><tbody></tbody>';
+    const tb = table.querySelector('tbody');
+    rows.forEach(r => {
+        const tr = el('tr');
+        tr.innerHTML = `<td>${r.file.name}</td><td>${r.line}</td><td></td>`;
+        tr.lastChild.textContent = r.text;
+        tr.addEventListener('click', () => {
+            pane.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected'));
+            tr.classList.add('selected');
+        });
+        tr.addEventListener('dblclick', () => {
+            App.nbEditors.select(r.file.key);
+            App.gotoLine(r.line);
+        });
+        tb.appendChild(tr);
+    });
+    pane.appendChild(table);
+    App.selectLogTab('search');
+};
+
+/* ------------------------------------------------------------- goto file */
+
+Features.gotoFileDialog = function () {
+    const body = el('div');
+    const input = el('input', 'cb');
+    input.style.cssText = 'width:100%;margin-bottom:6px';
+    input.placeholder = 'Type to filter';
+    const list = el('div');
+    list.style.cssText = 'height:220px;overflow:auto;border:1px solid #7a7a7a;background:#fff';
+    body.appendChild(input);
+    body.appendChild(list);
+
+    let items = [], sel = 0;
+    const render = () => {
+        const q = input.value.toLowerCase();
+        items = App.files.filter(f => f.name.toLowerCase().includes(q));
+        sel = Math.min(sel, Math.max(0, items.length - 1));
+        list.innerHTML = '';
+        items.forEach((f, i) => {
+            const row = el('div', 'tree-row' + (i === sel ? ' selected' : ''));
+            const img = el('img');
+            img.src = 'assets/icons/tree/file.svg';
+            row.appendChild(img);
+            row.appendChild(document.createTextNode(f.name));
+            row.addEventListener('mousedown', () => { sel = i; open(); });
+            list.appendChild(row);
+        });
+    };
+    const open = () => {
+        const f = items[sel];
+        if (f) App.nbEditors.select(f.key);
+        w.remove();
+    };
+    input.addEventListener('input', render);
+    input.addEventListener('keydown', ev => {
+        if (ev.key === 'ArrowDown') { sel = Math.min(items.length - 1, sel + 1); render(); ev.preventDefault(); }
+        else if (ev.key === 'ArrowUp') { sel = Math.max(0, sel - 1); render(); ev.preventDefault(); }
+        else if (ev.key === 'Enter') { open(); ev.preventDefault(); }
+        else if (ev.key === 'Escape') w.remove();
+    });
+
+    const w = UI.window({
+        title: 'Select file...', icon: 'assets/icons/goto.svg', width: 380, body,
+        buttons: [{ label: 'OK', onClick: open }, { label: 'Cancel', onClick: () => w.remove() }],
+    });
+    w.style.height = 'auto';
+    render();
+    setTimeout(() => input.focus(), 0);
+};
+
+/* ----------------------------------------------------------- class wizard */
+
+/* The Class wizard plugin: generates a header and an implementation file. */
+Features.classWizard = function () {
+    const body = el('div');
+    body.innerHTML = `
+      <table style="border-spacing:6px">
+        <tr><td>Class name:</td><td><input class="cb" id="cw-name" value="MyClass" style="width:220px"></td></tr>
+        <tr><td>Inherits from:</td><td><input class="cb" id="cw-base" placeholder="(none)" style="width:220px"></td></tr>
+        <tr><td>Header file:</td><td><input class="cb" id="cw-hdr" value="MyClass.h" style="width:220px"></td></tr>
+        <tr><td>Implementation:</td><td><input class="cb" id="cw-src" value="MyClass.cpp" style="width:220px"></td></tr>
+      </table>
+      <div style="margin-top:6px">
+        <label style="display:block"><input type="checkbox" id="cw-ctor" checked> Generate a default constructor</label>
+        <label style="display:block"><input type="checkbox" id="cw-dtor" checked> Generate a destructor</label>
+        <label style="display:block"><input type="checkbox" id="cw-guard" checked> Use an include guard</label>
+      </div>`;
+
+    const name0 = body.querySelector('#cw-name');
+    name0.addEventListener('input', () => {
+        body.querySelector('#cw-hdr').value = name0.value + '.h';
+        body.querySelector('#cw-src').value = name0.value + '.cpp';
+    });
+
+    const w = UI.window({
+        title: 'Class wizard', icon: 'assets/icons/filenew.svg', width: 460, body,
+        buttons: [
+            {
+                label: 'Create',
+                onClick: () => {
+                    const name = body.querySelector('#cw-name').value.trim() || 'MyClass';
+                    const base = body.querySelector('#cw-base').value.trim();
+                    const hdrName = body.querySelector('#cw-hdr').value.trim() || (name + '.h');
+                    const srcName = body.querySelector('#cw-src').value.trim() || (name + '.cpp');
+                    const ctor = body.querySelector('#cw-ctor').checked;
+                    const dtor = body.querySelector('#cw-dtor').checked;
+                    const guard = body.querySelector('#cw-guard').checked;
+                    const g = hdrName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+
+                    const hdr =
+                        (guard ? `#ifndef ${g}\n#define ${g}\n\n` : '#pragma once\n\n') +
+                        (base ? `#include "${base}.h"\n\n` : '') +
+                        `class ${name}${base ? ' : public ' + base : ''}\n{\n    public:\n` +
+                        (ctor ? `        ${name}();\n` : '') +
+                        (dtor ? `        virtual ~${name}();\n` : '') +
+                        `\n    protected:\n\n    private:\n};\n` +
+                        (guard ? `\n#endif // ${g}\n` : '');
+
+                    const src = `#include "${hdrName}"\n\n` +
+                        (ctor ? `${name}::${name}()\n{\n    //ctor\n}\n\n` : '') +
+                        (dtor ? `${name}::~${name}()\n{\n    //dtor\n}\n` : '');
+
+                    App.openFile(hdrName, hdr, App.activeProject, false);
+                    const s = App.openFile(srcName, src, App.activeProject, true);
+                    if (App.activeProject) App.activeProject.files.push(hdrName, srcName);
+                    App.refreshTrees();
+                    App.persist();
+                    void s;
+                    w.remove();
+                },
+            },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
+    });
+    w.style.height = 'auto';
 };
 
 /* ========================================================= editor settings */
@@ -1635,8 +2023,14 @@ Features.command = function (id, ctx) {
         }
 
         /* ---- Search ---- */
-        case 'idSearchFindInFiles': Features.findInFiles(false); return true;
-        case 'idSearchReplaceInFiles': Features.findInFiles(true); return true;
+        case 'idSearchFindInFiles':
+            Features.findState.scope = 'open';
+            Features.findDialog(false);
+            return true;
+        case 'idSearchReplaceInFiles':
+            Features.findState.scope = 'open';
+            Features.findDialog(true);
+            return true;
         case 'idSearchFindSelectedNext': Features.selectNextOccurrence(false); return true;
         case 'idSearchFindSelectedPrevious':
             if (cm) {
