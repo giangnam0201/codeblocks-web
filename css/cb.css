@@ -905,3 +905,61 @@ body.cb-dark #console-window .cb-window { border-color: #101010; }
    <font color="#0000ff"> - unreadable on a dark page */
 body.cb-dark .start-here font[color] { color: #6aa9ff !important; }
 body.cb-dark .start-here b { color: #e8e8e8; }
+
+/* ================================================== VNOI pane (dev branch) */
+
+.vnoi-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 5px; flex: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--face);
+}
+.vnoi-who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vnoi-dim { color: #6d6d6d; }
+body.cb-dark .vnoi-dim { color: #9a9aa4; }
+.vnoi-btn { padding: 1px 6px; }
+
+.vnoi-tab { height: 100%; display: flex; flex-direction: column; }
+.vnoi-row { display: flex; align-items: center; gap: 4px; padding: 4px; flex: none; }
+.vnoi-list { flex: 1; min-height: 0; overflow: auto; background: #ffffff; }
+body.cb-dark .vnoi-list { background: #1e1e1e; }
+
+.vnoi-section {
+    padding: 3px 5px; font-weight: bold;
+    background: var(--face); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+}
+.vnoi-item { padding: 3px 6px; border-bottom: 1px solid #ececec; }
+body.cb-dark .vnoi-item { border-bottom-color: #2d2d30; }
+.vnoi-item:hover { background: #e5f3ff; }
+body.cb-dark .vnoi-item:hover { background: #2a2d2e; }
+.vnoi-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vnoi-ac { color: #1f8a3d; font-weight: bold; }
+.vnoi-wa { color: #c00000; font-weight: bold; }
+body.cb-dark .vnoi-ac { color: #4ec94e; }
+body.cb-dark .vnoi-wa { color: #f48771; }
+
+/* a problem statement, shown as an editor page */
+.vnoi-statement { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
+body.cb-dark .vnoi-statement { background: #1e1e1e; }
+.vnoi-statement-head {
+    flex: none; padding: 8px 12px; border-bottom: 1px solid var(--border);
+    background: var(--face);
+}
+.vnoi-statement-head h2 { margin: 0 0 2px; font-size: 16px; }
+.vnoi-statement-body {
+    flex: 1; min-height: 0; overflow: auto; padding: 12px 16px;
+    font-family: var(--ui-font); font-size: 13px; line-height: 1.5;
+}
+.vnoi-statement-body pre {
+    background: #f4f4f4; border: 1px solid #ddd; padding: 6px 8px; overflow-x: auto;
+    font-family: var(--mono-font);
+}
+body.cb-dark .vnoi-statement-body pre { background: #252526; border-color: #3f3f46; }
+.vnoi-statement-body img { max-width: 100%; }
+.vnoi-statement-body table { border-collapse: collapse; }
+.vnoi-statement-body table td, .vnoi-statement-body table th {
+    border: 1px solid #c8c8c8; padding: 3px 6px;
+}
+body.cb-dark .vnoi-statement-body table td,
+body.cb-dark .vnoi-statement-body table th { border-color: #3f3f46; }

@@ -1,0 +1,23 @@
+# Deploy from this directory with:
+#
+#     npx wrangler login
+#     npx wrangler deploy
+#
+# The Worker is stateless - no KV, no D1, no secrets - so there is nothing to
+# configure beyond the route.  Once it is up, set VNOI.PROXY in ../js/vnoi.js
+# to the same URL (it defaults to https://vnoi.codeblocks.bond/vnoi).
+
+name = "vnoi-proxy"
+main = "vnoi-proxy.js"
+compatibility_date = "2026-01-01"
+
+# Keep the workers.dev address alive alongside the custom domain: it resolves
+# everywhere immediately, which makes it the fallback when a resolver has not
+# caught up with the subdomain yet.
+workers_dev = true
+
+# Served from the same domain as the IDE.  custom_domain = true makes
+# Cloudflare create the DNS record and the certificate itself.
+routes = [
+  { pattern = "vnoi.codeblocks.bond", custom_domain = true }
+]

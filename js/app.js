@@ -1928,6 +1928,7 @@ const DEBUGGER_TOOLBAR = [
 /* The tab set a stock Windows install shows, in the same order. */
 const LOG_TABS = [
     { key: 'app', title: 'Code::Blocks', icon: 'edit' },
+    { key: 'vnoi', title: 'VNOI', icon: 'flag' },
     { key: 'search', title: 'Search results', icon: 'edit' },
     { key: 'build', title: 'Build log', icon: 'misc' },
     { key: 'messages', title: 'Build messages', icon: 'flag', grid: true },
@@ -2147,6 +2148,21 @@ App.installThemeButton = function () {
     bar.appendChild(b);
 };
 
+/* Push the file in front to VNOI, without leaving the IDE. */
+App.installVnoiButton = function () {
+    const bar = document.getElementById('tb-main');
+    // note: VnoiUI is a top-level const, so it is not a window property
+    if (!bar || typeof VnoiUI === 'undefined' || bar.querySelector('.tb-vnoi')) return;
+    const b = el('div', 'tb-btn tb-vnoi');
+    b.title = 'Submit the current file to VNOI';
+    b.innerHTML =
+        '<svg viewBox="0 0 16 16" width="16" height="16">' +
+        '<path d="M8 1.5l5.5 5.5H10v5H6v-5H2.5z" fill="#1f8a3d"/>' +
+        '<rect x="3" y="13" width="10" height="1.6" fill="#1f8a3d"/></svg>';
+    b.addEventListener('click', () => VnoiUI.submitCurrent());
+    bar.appendChild(b);
+};
+
 App.updateDebugUI = function () {
     const on = Debugger.active;
     UI.enableTool('idDebuggerMenuStop', on);
@@ -2207,15 +2223,20 @@ function init() {
     document.querySelector('#tb-main .tb-btn[data-id="idToolNew"]')
         .addEventListener('click', () => App.command('idFileNewEmpty'));
 
-    /* the theme switch lives at the end of the main toolbar */
+    /* the theme switch and the VNOI submit button live at the end of the
+       main toolbar, where they are always in reach */
     App.installThemeButton();
+    App.installVnoiButton();
     let savedTheme = null;
     try { savedTheme = localStorage.getItem(App.THEME_KEY); } catch (e) { /* private mode */ }
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     App.applyTheme(savedTheme ? savedTheme === 'dark' : prefersDark, false);
 
-    /* management panel */
+    /* The left pane is the VNOI pane in this edition: the judge comes first
+       and the project trees follow it, since files still have to be managed. */
     App.nbManagement = new UI.Notebook('#nb-management', { scrollButtons: true });
+    if (typeof VnoiUI !== 'undefined') VnoiUI.install(App.nbManagement);
+
     const projHost = document.createElement('div');
     const symHost = document.createElement('div');
     const filesHost = document.createElement('div');
