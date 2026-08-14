@@ -1696,25 +1696,67 @@ App.desktopKeymap = function (on) {
     return Promise.resolve(false);
 };
 
+/* In full screen the keyboard is locked to the IDE, so F11 and Escape no
+   longer leave it - there has to be a way out on screen. */
+App.showFullScreenExit = function (on) {
+    let box = document.getElementById('fs-exit');
+    if (!on) { if (box) box.remove(); return; }
+    if (box) return;
+    box = document.createElement('div');
+    box.id = 'fs-exit';
+    box.innerHTML = '<span class="fs-exit-text">Full screen &mdash; desktop shortcuts active</span>' +
+                    '<span class="fs-exit-x" title="Exit full screen">&#10005;</span>';
+    box.querySelector('.fs-exit-x').addEventListener('click', () => {
+        if (document.exitFullscreen) document.exitFullscreen();
+    });
+    document.body.appendChild(box);
+};
+
 App.watchStolenShortcuts = function () {
     if (!UI.remappedAccels.length) return;      // this browser takes nothing
-    let ctrlAt = 0, sawChord = false, shown = false;
+    let ctrlAt = 0, sawChord = false, shown = false, timer = 0;
+
+    const mayShow = () =>
+        !shown && !document.fullscreenElement && !localStorage.getItem('cb.hideKeymapHint');
+    const show = delay => {
+        if (!mayShow()) return;
+        shown = true;
+        setTimeout(App.hintStolenShortcut, delay);
+    };
+    const cancel = () => { clearTimeout(timer); timer = 0; };
+
+    /* Say it up front rather than waiting for someone to lose a keystroke to
+       the browser: the panel comes up once, after the IDE has settled. */
+    setTimeout(() => show(0), 2500);
 
     document.addEventListener('keydown', ev => {
-        if (ev.key === 'Control') { ctrlAt = Date.now(); sawChord = false; }
-        else if (ev.ctrlKey) sawChord = true;   // the chord did reach us, all good
+        if (ev.key === 'Control' || ev.key === 'Shift' || ev.key === 'Alt') {
+            if (ev.key === 'Control' || !ctrlAt) { if (ev.key === 'Control') ctrlAt = Date.now(); }
+            /* Ctrl+Shift is the prefix of the shortcuts this browser takes -
+               Ctrl+Shift+N above all.  If the rest of the chord never arrives,
+               the browser swallowed it, and the user is left wondering why
+               nothing happened.  Waiting a moment tells the two apart: a real
+               Ctrl+Shift+S reaches us long before this fires. */
+            if (ev.ctrlKey && ev.shiftKey && !timer && mayShow())
+                timer = setTimeout(() => { timer = 0; show(0); }, 900);
+            return;
+        }
+        sawChord = true;                        // the chord did reach us, all good
+        cancel();
     }, true);
-    document.addEventListener('keyup', ev => { if (ev.key === 'Control') ctrlAt = 0; }, true);
+
+    document.addEventListener('keyup', ev => {
+        if (ev.key === 'Control') { ctrlAt = 0; cancel(); }
+        if (ev.key === 'Shift') cancel();
+    }, true);
 
     window.addEventListener('blur', () => {
         /* Ctrl went down, no chord arrived, and now focus is gone: the browser
-           opened something of its own with the key the user meant for us. */
-        if (shown || !ctrlAt || sawChord) return;
+           opened a window of its own with the key the user meant for us. */
+        cancel();
+        if (!ctrlAt || sawChord) return;
         if (Date.now() - ctrlAt > 4000) return;
-        if (document.fullscreenElement) return;
-        if (localStorage.getItem('cb.hideKeymapHint')) return;
-        shown = true;
-        setTimeout(App.hintStolenShortcut, 400);   // wait until we have focus back
+        show(400);                              // wait until we have focus back
     });
 };
 
@@ -1772,15 +1814,15 @@ function init() {
        full screen gives the exact desktop key map. */
     document.addEventListener('fullscreenchange', () => {
         const kb = navigator.keyboard;
-        if (!kb || !kb.lock) return;
         if (document.fullscreenElement) {
-            kb.lock().then(() => {
+            App.showFullScreenExit(true);
+            if (kb && kb.lock) kb.lock().then(() => {
                 App.keysLocked = true;
                 UI.setStatus(0, 'Desktop shortcuts active - Ctrl+Shift+N, Ctrl+W and Ctrl+R belong to the IDE again');
             }).catch(() => {});
-        } else if (App.keysLocked) {
-            App.keysLocked = false;
-            kb.unlock();
+        } else {
+            App.showFullScreenExit(false);
+            if (App.keysLocked && kb && kb.unlock) { App.keysLocked = false; kb.unlock(); }
         }
     });
 

@@ -548,6 +548,22 @@ table.log-grid tr.selected td { background: #cce8ff; }
 }
 .cb-hint-buttons { padding: 0 8px 8px; text-align: right; }
 
+/* the way out of full screen, where F11 and Escape belong to the IDE */
+#fs-exit {
+    position: fixed; top: 0; right: 0; z-index: 990;
+    display: flex; align-items: center; height: 22px;
+    background: var(--face); border: 1px solid #4d4d4d; border-top: none; border-right: none;
+    box-shadow: 0 1px 6px rgba(0,0,0,.3);
+    opacity: .55;
+}
+#fs-exit:hover { opacity: 1; }
+#fs-exit .fs-exit-text { padding: 0 8px; }
+#fs-exit .fs-exit-x {
+    width: 30px; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+}
+#fs-exit .fs-exit-x:hover { background: #e81123; color: #fff; }
+
 .cb-window {
     position: absolute;
     background: var(--face);

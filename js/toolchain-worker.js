@@ -10,6 +10,7 @@
 
 importScripts('../vendor/wasm-clang/shared.js');
 importScripts('sdk-headers.js');
+importScripts('gnu-headers.js');
 
 const BASE = '../vendor/wasm-clang/';
 const CACHE = 'cbweb-toolchain-v1';
@@ -20,6 +21,13 @@ const TOTAL = Object.values(ASSETS).reduce((a, b) => a + b, 0);
 
 const CC1_BASE = [
     '-disable-free',
+    /* This WebAssembly target has no atomic instructions, and libc++ reaches
+       for them in the shared_ptr reference count - which meant std::shared_ptr
+       and std::regex both died with "Cannot select AtomicLoadAdd" in the
+       backend.  Telling clang there is only ever one thread lowers those to
+       plain loads and stores, which is exactly right here: nothing in this
+       runtime can run two threads over the same memory. */
+    '-mthread-model', 'single',
     '-isysroot', '/',
     '-internal-isystem', '/include/c++/v1',
     '-internal-isystem', '/include',
@@ -28,22 +36,40 @@ const CC1_BASE = [
     '-fmessage-length', '0',
 ];
 
+/* What g++ pulls in for <bits/stdc++.h>.  Every name here was checked against
+   this toolchain: the ones libc++ does not ship at all (csignal, csetjmp,
+   cuchar, cstdalign, ctgmath, execution, memory_resource) are left out, since
+   including them would break the umbrella header for everyone. */
 const STDCXX_HEADERS = [
-    'cstdio', 'cstdlib', 'cstring', 'cctype', 'cmath', 'ctime', 'cassert', 'cerrno',
-    'climits', 'cfloat', 'cstdint', 'cstddef', 'cstdarg', 'cwchar', 'cwctype',
-    'clocale', 'cinttypes',
-    'algorithm', 'array', 'bitset', 'complex', 'deque', 'exception', 'forward_list',
-    'fstream', 'functional', 'initializer_list', 'iomanip', 'ios', 'iosfwd',
-    'iostream', 'istream', 'iterator', 'limits', 'list', 'locale', 'map', 'memory',
-    'new', 'numeric', 'ostream', 'queue', 'random', 'ratio', 'set', 'sstream',
-    'stack', 'stdexcept', 'streambuf', 'string', 'string_view', 'system_error',
-    'tuple', 'type_traits', 'typeindex', 'typeinfo', 'unordered_map',
-    'unordered_set', 'utility', 'valarray', 'vector',
+    // C library
+    'cassert', 'cctype', 'cerrno', 'cfenv', 'cfloat', 'cinttypes', 'ciso646',
+    'climits', 'clocale', 'cmath', 'cstdarg', 'cstdbool', 'cstddef', 'cstdint',
+    'cstdio', 'cstdlib', 'cstring', 'ctime', 'cwchar', 'cwctype',
+    // containers and algorithms
+    'algorithm', 'array', 'bitset', 'deque', 'forward_list', 'iterator', 'list',
+    'map', 'queue', 'set', 'stack', 'unordered_map', 'unordered_set', 'vector',
+    // strings and streams
+    'fstream', 'iomanip', 'ios', 'iosfwd', 'iostream', 'istream', 'locale',
+    'ostream', 'sstream', 'streambuf', 'string', 'string_view', 'codecvt',
+    'charconv',
+    // numerics
+    'bit', 'complex', 'limits', 'numeric', 'random', 'ratio', 'valarray',
+    // language support and utilities
+    'any', 'chrono', 'exception', 'functional', 'initializer_list', 'memory',
+    'new', 'optional', 'scoped_allocator', 'stdexcept', 'system_error', 'tuple',
+    'type_traits', 'typeindex', 'typeinfo', 'utility', 'variant',
+    // filesystem and regular expressions
+    'filesystem', 'regex',
+    // concurrency: these compile, and a program that actually starts a thread
+    // fails at link time with a plain message rather than a mystery
+    'atomic', 'condition_variable', 'future', 'mutex', 'shared_mutex', 'thread',
 ];
 const STDCXX_HEADER_TEXT =
     '// <bits/stdc++.h> for libc++, provided by Code::Blocks web edition.\n' +
     '#ifndef CBWEB_BITS_STDCXX_H\n#define CBWEB_BITS_STDCXX_H\n' +
-    STDCXX_HEADERS.map(h => `#include <${h}>`).join('\n') + '\n#endif\n';
+    STDCXX_HEADERS.map(h => `#include <${h}>`).join('\n') +
+    // g++ users reach for std::__gcd and std::__lg through this header
+    '\n#include <bits/stdcxx_ext.h>\n#endif\n';
 
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 const stripAnsi = s => s.replace(ANSI_RE, '');
@@ -121,6 +147,20 @@ async function fetchAsset(name) {
     return buf.buffer;
 }
 
+/* Directories created in memfs.  'include' and 'include/bits' come with the
+   sysroot; anything deeper we make ourselves, once. */
+const installedDirs = new Set(['include', 'include/bits']);
+function ensureDir(dir) {
+    const parts = dir.split('/');
+    let cur = '';
+    for (const p of parts) {
+        cur = cur ? cur + '/' + p : p;
+        if (installedDirs.has(cur)) continue;
+        installedDirs.add(cur);
+        api.memfs.addDirectory(cur);
+    }
+}
+
 let readyPromise = null;
 function init() {
     if (readyPromise) return readyPromise;
@@ -135,8 +175,16 @@ function init() {
         sink = () => {};
         await api.ready;
         api.memfs.addFile('include/bits/stdc++.h', STDCXX_HEADER_TEXT);
-        // the Windows/console compatibility headers
+        // the Windows/console compatibility headers, then the g++ extensions
         for (const path in SDK_HEADERS) api.memfs.addFile(path, SDK_HEADERS[path]);
+        /* memfs will not create a file inside a directory that does not exist
+           yet - it traps - so the <ext/pb_ds/...> tree has to be laid out
+           first. */
+        for (const path in GNU_HEADERS) {
+            const slash = path.lastIndexOf('/');
+            if (slash > 0) ensureDir(path.slice(0, slash));
+            api.memfs.addFile(path, GNU_HEADERS[path]);
+        }
         sink = prev;
         return api;
     })();
@@ -157,14 +205,52 @@ async function capture(fn) {
     }
 }
 
+/* A few failures are inherent to compiling for WebAssembly in a page, and the
+   raw message for them is a wall of backend internals or a bare symbol name.
+   Each one gets a sentence saying what is actually wrong. */
+const EXPLAIN = [
+    {
+        re: /Cannot select.*Atomic|atomic.*not supported/i,
+        text: 'note: this WebAssembly target has no atomic instructions. ' +
+              'If you did not start a thread yourself, this is a compiler bug - please report it.',
+    },
+    {
+        re: /undefined symbol: (pthread_create|__cxa_thread|thrd_create)/,
+        text: 'note: std::thread and friends cannot run here - a program in this ' +
+              'edition gets a single WebAssembly thread. The headers compile so that ' +
+              'code including <thread> still builds; starting a thread is what fails.',
+    },
+    {
+        re: /undefined symbol: (__cxa_throw|__cxa_begin_catch|_Unwind_)/,
+        text: 'note: exceptions are turned off in this toolchain (libc++ here is built ' +
+              '-fno-exceptions), so throw and catch cannot be linked. Return a value or ' +
+              'an error code instead.',
+    },
+    {
+        re: /undefined symbol: _ZNSt3__24__fs|undefined symbol:.*filesystem/,
+        text: 'note: <filesystem> compiles but cannot be linked here - this sysroot ships ' +
+              'no libc++fs. Use <fstream> for reading and writing files; the program has ' +
+              'its own private filesystem in the page.',
+    },
+    {
+        re: /undefined symbol: (socket|connect|bind|listen|accept|gethostby)/,
+        text: 'note: there are no sockets in WebAssembly - a page cannot open a TCP ' +
+              'connection. <winsock2.h> and <sys/socket.h> declare the functions so the ' +
+              'code compiles, but nothing can connect.',
+    },
+];
+
 /* Drops the harness's "> clang -cc1 ..." command echo. */
 function cleanDiagnostics(text) {
-    return stripAnsi(text)
+    const cleaned = stripAnsi(text)
         .split('\n')
         .filter(l => !/^>\s/.test(l))
         .join('\n')
         .replace(/^\s*\n/, '')
         .replace(/\n{3,}/g, '\n\n');
+    if (!cleaned.trim()) return cleaned;
+    const notes = EXPLAIN.filter(e => e.re.test(cleaned)).map(e => e.text);
+    return notes.length ? cleaned.replace(/\n*$/, '\n') + notes.join('\n') + '\n' : cleaned;
 }
 
 async function build(fileName, source, options) {
@@ -215,6 +301,25 @@ async function build(fileName, source, options) {
     return { ok: true, diagnostics, id, size: buffer.length };
 }
 
+/* A trap in the running program prints a WebAssembly stack, which says nothing
+   to someone who just wrote C++.  These are the cases worth naming. */
+function runtimeExplanation(trace) {
+    if (/std::__2::thread|pthread_create/.test(trace))
+        return 'This program tried to start a std::thread. A program here gets a single\n' +
+               'WebAssembly thread, so the thread never runs and std::terminate is called.\n' +
+               'Call the function directly, or use std::async-free sequential code instead.\n';
+    if (/std::terminate|abort/.test(trace) && /__cxa_throw/.test(trace))
+        return 'This program threw an exception, and exceptions are not enabled in this\n' +
+               'toolchain, so the throw ends the program instead of being caught.\n';
+    if (/memory access out of bounds|table index is out of bounds/.test(trace))
+        return 'The program read or wrote outside its memory - the usual causes are an\n' +
+               'index past the end of an array, or a pointer used after free.\n';
+    if (/call stack exhausted|Maximum call stack/.test(trace))
+        return 'The call stack ran out: usually infinite recursion, or a very large array\n' +
+               'declared inside a function. Large arrays belong outside main or on the heap.\n';
+    return '';
+}
+
 async function run(id, exeName, stdin, stopOnInput) {
     await init();
     const module = modules.get(id);
@@ -236,7 +341,12 @@ async function run(id, exeName, stdin, stopOnInput) {
     } catch (e) {
         if (e instanceof StdinStarved) starved = true;
         else if (e && typeof e.code === 'number') exit = e.code;
-        else { exit = 1; out += `\n${e && e.message ? e.message : e}\n`; }
+        else {
+            exit = 1;
+            const msg = e && e.message ? e.message : String(e);
+            out += `\n${msg}\n`;
+            out += runtimeExplanation(msg + '\n' + (e && e.stack ? e.stack : ''));
+        }
     } finally {
         api.memfs.onStdinStarved = null;
         sink = prev;

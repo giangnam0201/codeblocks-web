@@ -204,6 +204,20 @@ const KNOWN_HEADERS = new Set([
     'unordered_map', 'unordered_set', 'functional', 'memory', 'iterator', 'array',
     'complex', 'exception', 'stdexcept', 'cassert', 'assert.h', 'bitset', 'random',
     'chrono', 'tuple', 'type_traits', 'limits', 'iosfwd', 'new', 'typeinfo', 'cerrno',
+    // the rest of what the real toolchain accepts
+    'optional', 'variant', 'any', 'string_view', 'charconv', 'filesystem', 'regex',
+    'atomic', 'thread', 'mutex', 'shared_mutex', 'condition_variable', 'future',
+    'forward_list', 'valarray', 'ratio', 'system_error', 'typeindex', 'locale',
+    'codecvt', 'scoped_allocator', 'initializer_list', 'istream', 'ostream',
+    'streambuf', 'ios', 'bit', 'cstdint', 'stdint.h', 'cstddef', 'stddef.h',
+    'cstdarg', 'cwchar', 'cwctype', 'clocale', 'cinttypes', 'cfenv', 'ciso646',
+    'cstdbool',
+    // the g++ extensions this edition provides
+    'bits/extc++.h', 'bits/stdcxx_ext.h',
+    'ext/pb_ds/assoc_container.hpp', 'ext/pb_ds/tree_policy.hpp',
+    // the Windows compatibility headers
+    'windows.h', 'conio.h', 'tchar.h', 'io.h', 'direct.h', 'process.h',
+    'winsock2.h', 'ws2tcpip.h', 'wininet.h', 'winhttp.h',
 ]);
 
 /* Runs the directives and expands macros at token level. */
