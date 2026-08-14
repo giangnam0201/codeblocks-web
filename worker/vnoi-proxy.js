@@ -30,6 +30,7 @@ const UPSTREAM = 'https://oj.vnoi.info';
    is what stops it becoming a public proxy for someone else's scraper. */
 const ALLOWED_ORIGINS = [
     'https://vnoi.codeblocks.bond',        // the IDE, on Cloudflare Pages
+    'https://codeblocks-vnoi.pages.dev',   // the same deployment, before DNS
     'https://codeblocks.bond',
     'https://www.codeblocks.bond',
     'http://localhost:8899',

@@ -104,18 +104,34 @@ let nextModuleId = 1;
 
 function post(msg) { self.postMessage(msg); }
 
-/* Which base actually has the files.  Decided once, on the first asset. */
+/* Which base actually has the files.  Decided once, on the first asset.
+
+   A status code is not enough to tell: a host that does not have the file may
+   answer 200 with its own 404 page, and handing that to WebAssembly.compile
+   fails with "expected magic word ... found 3c 21 44 4f" - which is "<!DO",
+   the start of an HTML document.  So the probe reads the first four bytes and
+   insists on the WebAssembly magic number. */
 let assetBase = null;
 async function resolveBase() {
     if (assetBase) return assetBase;
-    try {
-        const probe = await fetch(BASE + 'memfs', { method: 'HEAD' });
-        assetBase = probe.ok ? BASE : REMOTE_BASE;
-    } catch (e) {
-        assetBase = REMOTE_BASE;
-    }
+    /* Only the first chunk is read, then the body is cancelled: a Range header
+       is no good here because GitHub Pages answers 206 with an empty body. */
+    const isWasm = async base => {
+        try {
+            const r = await fetch(base + 'memfs');
+            if (!r.ok || !r.body) return false;
+            const reader = r.body.getReader();
+            const { value } = await reader.read();
+            reader.cancel().catch(() => {});
+            const b = value || new Uint8Array();
+            return b[0] === 0x00 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d;
+        } catch (e) {
+            return false;
+        }
+    };
+    assetBase = (await isWasm(BASE)) ? BASE : REMOTE_BASE;
     if (assetBase === REMOTE_BASE)
-        post({ type: 'note', text: 'Loading the compiler from codeblocks.bond' });
+        post({ type: 'note', text: 'compiler from codeblocks.bond' });
     return assetBase;
 }
 
