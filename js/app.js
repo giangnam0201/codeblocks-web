@@ -32,6 +32,36 @@ int main()
 }
 `;
 
+/* The other files the wizard writes, matching the desktop templates. */
+const C_CONSOLE_TEMPLATE =
+`#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+    printf("Hello world!\\n");
+    return 0;
+}
+`;
+
+const LIB_TEMPLATE_CPP =
+`#include "main.h"
+
+void hello()
+{
+    std::cout << "Hello world!" << std::endl;
+}
+`;
+
+const LIB_TEMPLATE_C =
+`#include "main.h"
+
+void hello()
+{
+    printf("Hello world!\\n");
+}
+`;
+
 /* ============================================================ file model */
 
 class SourceFile {
@@ -245,6 +275,23 @@ App.refreshBreakpoints = function () {
             f.cm.setGutterMarker(line - 1, 'cb-margin-marker',
                                  marker('assets/icons/breakpoint.svg', 'Breakpoint')));
 
+        /* Lines the compiler complained about get the red box the desktop
+           editor puts in the marker margin, and the line itself is tinted. */
+        const bad = (App.buildErrorLines && App.buildErrorLines.get(f.name)) || null;
+        (f.errorMarks || []).forEach(h => f.cm.removeLineClass(h, 'background', 'cb-line-error'));
+        (f.warnMarks || []).forEach(h => f.cm.removeLineClass(h, 'background', 'cb-line-warning'));
+        f.errorMarks = []; f.warnMarks = [];
+        if (bad) bad.forEach((kind, line) => {
+            if (line < 1 || line > f.cm.lineCount()) return;
+            const box = document.createElement('div');
+            box.className = kind === 'warning' ? 'cb-marker-warn' : 'cb-marker-err';
+            box.title = kind === 'warning' ? 'Warning on this line' : 'Error on this line';
+            f.cm.setGutterMarker(line - 1, 'cb-margin-marker', box);
+            const cls = kind === 'warning' ? 'cb-line-warning' : 'cb-line-error';
+            const h = f.cm.addLineClass(line - 1, 'background', cls);
+            (kind === 'warning' ? f.warnMarks : f.errorMarks).push(h);
+        });
+
         // changebar: yellow for unsaved edits, green once saved
         (f.changedLines || new Set()).forEach(line => {
             const bar = document.createElement('div');
@@ -254,6 +301,22 @@ App.refreshBreakpoints = function () {
         });
     });
     App.refreshBreakpointList();
+};
+
+/* What the last build complained about: file name -> Map(line -> kind).  The
+   markers survive until the next build, like the desktop editor. */
+App.buildErrorLines = new Map();
+App.setBuildErrors = function (list) {
+    App.buildErrorLines = new Map();
+    (list || []).forEach(d => {
+        if (!d.line) return;
+        const key = d.file;
+        if (!App.buildErrorLines.has(key)) App.buildErrorLines.set(key, new Map());
+        const m = App.buildErrorLines.get(key);
+        // an error on a line beats a warning on the same line
+        if (m.get(d.line) !== 'error') m.set(d.line, d.kind === 'warning' ? 'warning' : 'error');
+    });
+    App.refreshBreakpoints();
 };
 
 let debugLineHandle = null;
@@ -986,6 +1049,21 @@ App.setTarget = function (t) {
     App.persist();
 };
 
+/* The build-target dropdown follows the project's own targets, so a project
+   the wizard made with only a Release configuration offers only that. */
+App.setTargetList = function (p) {
+    const sel = document.getElementById('idToolTarget');
+    if (!sel) return;
+    const targets = (p && p.targets && p.targets.length) ? p.targets : ['Debug', 'Release'];
+    sel.innerHTML = '';
+    targets.forEach(t => {
+        const o = document.createElement('option');
+        o.textContent = t;
+        sel.appendChild(o);
+    });
+    App.setTarget(targets.includes(App.activeTarget) ? App.activeTarget : targets[0]);
+};
+
 App.gotoError = function (dir) {
     const rows = Array.from(document.querySelectorAll('#build-messages tbody tr'))
         .filter(r => r.classList.contains('error') || r.classList.contains('warning'));
@@ -1475,65 +1553,291 @@ Dialogs.projectProperties = function () {
 
 const Wizard = {};
 
+/* The template gallery, then the scripted wizard itself.  Both follow the
+   desktop: the gallery is "New from template" with its category list, and the
+   console wizard walks the same four pages its wizard.script defines - intro,
+   language, project path, compiler and configurations - with the strings from
+   projectpathpanel.cpp and compilerpanel.cpp. */
+
+Wizard.TEMPLATES = [
+    {
+        id: 'console', title: 'Console application', icon: 'assets/console_logo.png',
+        info: 'Welcome to the new console application wizard!\n' +
+              'This wizard will guide you to create a new console application.\n\n' +
+              'When you\'re ready to proceed, please click "Next"...',
+        languages: true,
+    },
+    {
+        id: 'empty', title: 'Empty project', icon: 'assets/icons/filenew.svg',
+        info: 'Welcome to the new empty project wizard!\n' +
+              'This wizard will guide you to create a new empty project.\n\n' +
+              'When you\'re ready to proceed, please click "Next"...',
+        languages: false,
+    },
+    {
+        id: 'staticlib', title: 'Static library', icon: 'assets/icons/tree/project.svg',
+        info: 'Welcome to the new static library wizard!\n' +
+              'This wizard will guide you to create a new static library.\n\n' +
+              'When you\'re ready to proceed, please click "Next"...',
+        languages: true,
+    },
+];
+
 Wizard.newProject = function () {
     const body = document.createElement('div');
     body.innerHTML = `
-      <div style="display:flex;gap:10px;height:290px">
-        <div style="width:140px;border:1px solid #7a7a7a;background:#fff;overflow:auto">
-          <div class="tree-row selected" style="padding-left:6px">Projects</div>
-          <div class="tree-row" style="padding-left:6px">Category</div>
-          <div class="tree-row" style="padding-left:6px">Files</div>
-        </div>
-        <div style="flex:1;border:1px solid #7a7a7a;background:#fff;padding:10px;overflow:auto">
-          <div id="wiz-templates" style="display:flex;flex-wrap:wrap;gap:14px">
-            <div class="wiz-item" data-t="console" style="width:88px;text-align:center">
-              <img src="assets/console_logo.png" style="width:32px;height:32px"><br>Console application
-            </div>
-            <div class="wiz-item" data-t="empty" style="width:88px;text-align:center">
-              <img src="assets/icons/filenew.svg" style="width:32px;height:32px"><br>Empty project
-            </div>
+      <div style="display:flex;gap:10px;height:300px">
+        <div style="width:150px;border:1px solid #7a7a7a;background:#fff;overflow:auto" id="wiz-cats"></div>
+        <div style="flex:1;display:flex;flex-direction:column">
+          <div style="flex:1;border:1px solid #7a7a7a;background:#fff;padding:10px;overflow:auto">
+            <div id="wiz-templates" style="display:flex;flex-wrap:wrap;gap:14px"></div>
+          </div>
+          <div style="margin-top:6px">
+            View as: <label><input type="radio" name="wiz-view" checked> Large icons</label>
+            <label style="margin-left:8px"><input type="radio" name="wiz-view"> List</label>
           </div>
         </div>
       </div>
-      <div style="margin-top:10px">
-        <table style="border-spacing:6px">
-          <tr><td>Project title:</td><td><input class="cb" id="wiz-name" value="MyProject" style="width:220px"></td></tr>
-          <tr><td>Folder to create project in:</td><td><input class="cb" id="wiz-dir" value="C:\\Users\\Dev\\Projects" style="width:220px"></td></tr>
-        </table>
+      <div id="wiz-tip" style="margin-top:8px;min-height:32px">
+        TIP: Select a wizard and press "Go" to start it.
       </div>`;
 
-    let kind = 'console';
-    body.querySelectorAll('.wiz-item').forEach(item => {
-        item.style.border = '1px solid transparent';
-        item.style.padding = '4px';
-        if (item.dataset.t === kind) { item.style.background = '#cce8ff'; item.style.borderColor = '#99d1ff'; }
-        item.addEventListener('click', () => {
-            kind = item.dataset.t;
-            body.querySelectorAll('.wiz-item').forEach(o => {
+    const cats = ['Projects', 'Build targets', 'Files', 'Custom', 'User templates'];
+    const catBox = body.querySelector('#wiz-cats');
+    cats.forEach((c, i) => {
+        const row = el('div', 'tree-row' + (i === 0 ? ' selected' : ''));
+        row.style.paddingLeft = '6px';
+        row.textContent = c;
+        row.addEventListener('click', () => {
+            catBox.querySelectorAll('.tree-row').forEach(r => r.classList.remove('selected'));
+            row.classList.add('selected');
+            body.querySelector('#wiz-tip').textContent = i === 0
+                ? 'TIP: Select a wizard and press "Go" to start it.'
+                : `TIP: The web edition creates projects and files; "${c}" is empty here.`;
+            grid.style.display = i === 0 ? 'flex' : 'none';
+        });
+        catBox.appendChild(row);
+    });
+
+    let chosen = Wizard.TEMPLATES[0];
+    const grid = body.querySelector('#wiz-templates');
+    Wizard.TEMPLATES.forEach(t => {
+        const item = el('div', 'wiz-item');
+        item.style.cssText = 'width:92px;text-align:center;padding:4px;border:1px solid transparent';
+        item.innerHTML = `<img src="${t.icon}" style="width:32px;height:32px"><br>${t.title}`;
+        const select = () => {
+            chosen = t;
+            grid.querySelectorAll('.wiz-item').forEach(o => {
                 o.style.background = o === item ? '#cce8ff' : '';
                 o.style.borderColor = o === item ? '#99d1ff' : 'transparent';
             });
-        });
+        };
+        item.addEventListener('click', select);
+        item.addEventListener('dblclick', () => { select(); go(); });
+        grid.appendChild(item);
+        if (t === chosen) select();
     });
 
+    const go = () => { w.remove(); Wizard.run(chosen); };
     const w = UI.window({
-        title: 'New from template', icon: 'assets/codeblocks.png', width: 620, height: 480, body,
+        title: 'New from template', icon: 'assets/codeblocks.png', width: 620, height: 460, body,
         buttons: [
-            {
-                label: 'Go',
-                onClick: () => {
-                    const name = (document.getElementById('wiz-name').value || 'MyProject').trim();
-                    const dir = document.getElementById('wiz-dir').value.trim() || 'C:\\Users\\Dev\\Projects';
-                    w.remove();
-                    App.projectPath = dir + '\\' + name;
-                    App.newProject(name, kind === 'console');
-                    App.updateStartPageRecents();
-                    App.updateStatusBar();
-                },
-            },
+            { label: 'Go', onClick: go },
             { label: 'Cancel', onClick: () => w.remove() },
         ],
     });
+};
+
+/* The wizard pages.  Back/Next/Finish behave as they do on the desktop:
+   Finish only lights up on the last page, and Next validates the page it is
+   leaving. */
+Wizard.run = function (tpl) {
+    const state = {
+        lang: 1,                                  // 0 = C, 1 = C++
+        title: 'MyProject',
+        dir: 'C:\\Users\\Dev\\Projects',
+        compiler: 'GNU GCC Compiler',
+        debug: true, debugName: 'Debug',
+        debugOut: 'bin\\Debug\\', debugObj: 'obj\\Debug\\',
+        release: true, releaseName: 'Release',
+        releaseOut: 'bin\\Release\\', releaseObj: 'obj\\Release\\',
+    };
+
+    const pages = [];
+    pages.push({                                   // Wizard.AddInfoPage
+        name: 'intro',
+        render: () => `
+          <div style="display:flex;gap:12px">
+            <img src="assets/console_logo.png" style="width:64px;height:64px;flex:none">
+            <div style="white-space:pre-wrap">${tpl.info}</div>
+          </div>
+          <label style="display:block;margin-top:16px">
+            <input type="checkbox" id="wz-skip"> Skip this page next time</label>`,
+    });
+    if (tpl.languages) pages.push({                // AddGenericSingleChoiceListPage
+        name: 'language',
+        render: () => `
+          <div style="margin-bottom:6px">Please select the language you want to use.</div>
+          <select class="cb" id="wz-lang" size="6" style="width:100%;height:120px">
+            <option${state.lang === 0 ? ' selected' : ''}>C</option>
+            <option${state.lang === 1 ? ' selected' : ''}>C++</option>
+          </select>`,
+        leave: box => { state.lang = box.querySelector('#wz-lang').selectedIndex; return true; },
+    });
+    pages.push({                                   // AddProjectPathPage
+        name: 'path',
+        render: () => `
+          <div style="white-space:pre-wrap;margin-bottom:8px">Please select the folder where you want the new project
+to be created as well as its title.</div>
+          <table style="border-spacing:4px;width:100%">
+            <tr><td style="width:150px">Project title:</td>
+                <td><input class="cb" id="wz-title" value="${state.title}" style="width:100%"></td></tr>
+            <tr><td>Folder to create project in:</td>
+                <td><input class="cb" id="wz-dir" value="${state.dir.replace(/\\/g, '\\')}" style="width:100%"></td></tr>
+            <tr><td>Project filename:</td>
+                <td><input class="cb" id="wz-file" value="${state.title}.cbp" style="width:100%"></td></tr>
+            <tr><td>Resulting filename:</td>
+                <td><input class="cb" id="wz-full" readonly style="width:100%;background:var(--face)"></td></tr>
+          </table>`,
+        enter: box => {
+            const t = box.querySelector('#wz-title'), d = box.querySelector('#wz-dir');
+            const f = box.querySelector('#wz-file'), full = box.querySelector('#wz-full');
+            const sync = () => {
+                if (!f.dataset.touched) f.value = (t.value || 'MyProject') + '.cbp';
+                full.value = d.value.replace(/\\+$/, '') + '\\' + (t.value || 'MyProject') + '\\' + f.value;
+            };
+            t.addEventListener('input', sync);
+            d.addEventListener('input', sync);
+            f.addEventListener('input', () => { f.dataset.touched = '1'; sync(); });
+            sync();
+        },
+        leave: async box => {
+            const title = box.querySelector('#wz-title').value.trim();
+            if (!title) {
+                await UI.messageBox('Please enter a project title.', 'Notice', ['OK'], '⚠️');
+                return false;
+            }
+            if (App.projects.some(p => p.name === title)) {
+                await UI.messageBox(`A project named "${title}" is already open.`, 'Notice', ['OK'], '⚠️');
+                return false;
+            }
+            state.title = title;
+            state.dir = box.querySelector('#wz-dir').value.trim() || state.dir;
+            return true;
+        },
+    });
+    pages.push({                                   // AddCompilerPage
+        name: 'compiler',
+        render: () => `
+          <div style="white-space:pre-wrap;margin-bottom:8px">Please select the compiler to use and which configurations
+you want enabled in your project.</div>
+          <div style="margin-bottom:8px">Compiler:<br>
+            <select class="cb" id="wz-compiler" style="width:100%">
+              <option>GNU GCC Compiler</option>
+            </select>
+          </div>
+          <fieldset style="border:1px solid #a0a0a0;margin-bottom:8px">
+            <legend><label><input type="checkbox" id="wz-dbg" ${state.debug ? 'checked' : ''}>
+              Create "Debug" configuration:</label>
+              <input class="cb" id="wz-dbg-name" value="${state.debugName}" style="width:110px"></legend>
+            <table style="border-spacing:4px">
+              <tr><td>Output dir.:</td><td><input class="cb" id="wz-dbg-out" value="${state.debugOut}" style="width:180px"></td></tr>
+              <tr><td>Objects output dir.:</td><td><input class="cb" id="wz-dbg-obj" value="${state.debugObj}" style="width:180px"></td></tr>
+            </table>
+          </fieldset>
+          <fieldset style="border:1px solid #a0a0a0">
+            <legend><label><input type="checkbox" id="wz-rel" ${state.release ? 'checked' : ''}>
+              Create "Release" configuration:</label>
+              <input class="cb" id="wz-rel-name" value="${state.releaseName}" style="width:110px"></legend>
+            <table style="border-spacing:4px">
+              <tr><td>Output dir.:</td><td><input class="cb" id="wz-rel-out" value="${state.releaseOut}" style="width:180px"></td></tr>
+              <tr><td>Objects output dir.:</td><td><input class="cb" id="wz-rel-obj" value="${state.releaseObj}" style="width:180px"></td></tr>
+            </table>
+          </fieldset>`,
+        leave: async box => {
+            const dbg = box.querySelector('#wz-dbg').checked;
+            const rel = box.querySelector('#wz-rel').checked;
+            if (!dbg && !rel) {
+                await UI.messageBox('At least one configuration must be set...', 'Notice', ['OK'], '⚠️');
+                return false;
+            }
+            state.debug = dbg; state.release = rel;
+            state.debugName = box.querySelector('#wz-dbg-name').value.trim() || 'Debug';
+            state.releaseName = box.querySelector('#wz-rel-name').value.trim() || 'Release';
+            state.debugOut = box.querySelector('#wz-dbg-out').value.trim();
+            state.debugObj = box.querySelector('#wz-dbg-obj').value.trim();
+            state.releaseOut = box.querySelector('#wz-rel-out').value.trim();
+            state.releaseObj = box.querySelector('#wz-rel-obj').value.trim();
+            return true;
+        },
+    });
+
+    let at = 0;
+    const body = document.createElement('div');
+    const box = el('div');
+    box.style.cssText = 'min-height:230px';
+    body.appendChild(box);
+
+    const draw = () => {
+        box.innerHTML = pages[at].render();
+        if (pages[at].enter) pages[at].enter(box);
+        btnBack.disabled = at === 0;
+        btnNext.disabled = at === pages.length - 1;
+        btnFinish.disabled = at !== pages.length - 1;
+    };
+    const step = async dir => {
+        if (dir > 0 && pages[at].leave && !(await pages[at].leave(box))) return;
+        at += dir;
+        draw();
+    };
+
+    const w = UI.window({
+        title: 'Console application', icon: 'assets/codeblocks.png', width: 520, body,
+        buttons: [
+            { label: '< Back', onClick: () => step(-1) },
+            { label: 'Next >', onClick: () => step(1) },
+            { label: 'Finish', onClick: async () => {
+                if (pages[at].leave && !(await pages[at].leave(box))) return;
+                w.remove();
+                Wizard.finish(tpl, state);
+            } },
+            { label: 'Cancel', onClick: () => w.remove() },
+        ],
+    });
+    w.style.height = 'auto';
+    const btns = w.querySelectorAll('.buttons button');
+    const [btnBack, btnNext, btnFinish] = btns;
+    draw();
+};
+
+/* Turns the wizard's answers into a real project. */
+Wizard.finish = function (tpl, state) {
+    const cpp = state.lang !== 0;
+    App.projectPath = state.dir.replace(/\\+$/, '') + '\\' + state.title;
+    const p = App.newProject(state.title, false);
+
+    p.targets = [];
+    if (state.debug) p.targets.push(state.debugName);
+    if (state.release) p.targets.push(state.releaseName);
+    if (!p.targets.length) p.targets = ['Debug'];
+    p.outputDirs = {};
+    if (state.debug) p.outputDirs[state.debugName] = { out: state.debugOut, obj: state.debugObj };
+    if (state.release) p.outputDirs[state.releaseName] = { out: state.releaseOut, obj: state.releaseObj };
+    p.compiler = state.compiler;
+
+    if (tpl.id !== 'empty') {
+        const name = cpp ? 'main.cpp' : 'main.c';
+        const text = cpp ? CONSOLE_TEMPLATE : C_CONSOLE_TEMPLATE;
+        const f = App.openFile(name, tpl.id === 'staticlib' ? (cpp ? LIB_TEMPLATE_CPP : LIB_TEMPLATE_C) : text, p);
+        p.files.push(f.name);
+    }
+    App.setTargetList(p);
+    App.refreshTrees();
+    App.updateStartPageRecents();
+    App.updateStatusBar();
+    App.logAppend('app',
+        `Project '${state.title}' created (${cpp ? 'C++' : 'C'}, ${p.targets.join(' and ')}).\n`);
+    App.persist();
 };
 
 /* ================================================================= setup */
@@ -1783,6 +2087,66 @@ App.hintStolenShortcut = function () {
     });
 };
 
+/* ================================================================ theming
+
+   A web-edition extra: the same IDE in a dark palette.  The switch is on the
+   main toolbar, and it animates - the icon turns from sun to moon, a soft
+   sweep runs out from the button, and every colour crosses over rather than
+   snapping. */
+App.THEME_KEY = 'cb.theme';
+
+App.applyTheme = function (dark, animate, origin) {
+    const body = document.body;
+    if (animate) {
+        body.classList.add('theme-anim');
+        const sweep = document.createElement('div');
+        sweep.id = 'theme-sweep';
+        if (origin) {
+            sweep.style.setProperty('--sweep-x', origin.x + 'px');
+            sweep.style.setProperty('--sweep-y', origin.y + 'px');
+        }
+        document.body.appendChild(sweep);
+        setTimeout(() => sweep.remove(), 600);
+        setTimeout(() => body.classList.remove('theme-anim'), 420);
+    }
+    body.classList.toggle('cb-dark', !!dark);
+    App.dark = !!dark;
+    try { localStorage.setItem(App.THEME_KEY, dark ? 'dark' : 'light'); } catch (e) { /* private mode */ }
+    // CodeMirror measures against the stylesheet, so it needs a nudge
+    setTimeout(() => App.files.forEach(f => { if (f.cm) f.cm.refresh(); }), 350);
+    if (animate) UI.setStatus(0, dark ? 'Dark theme' : 'Light theme');
+    const btn = document.querySelector('.tb-theme');
+    if (btn) btn.title = dark ? 'Switch to the light theme' : 'Switch to the dark theme';
+};
+
+App.toggleTheme = function (ev) {
+    const btn = document.querySelector('.tb-theme');
+    const r = btn ? btn.getBoundingClientRect() : null;
+    const origin = ev && ev.clientX
+        ? { x: ev.clientX, y: ev.clientY }
+        : r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+    App.applyTheme(!App.dark, true, origin);
+};
+
+App.installThemeButton = function () {
+    const bar = document.getElementById('tb-main');
+    if (!bar || bar.querySelector('.tb-theme')) return;
+    bar.appendChild(el('div', 'tb-sep'));
+    const b = el('div', 'tb-btn tb-theme');
+    b.title = 'Switch to the dark theme';
+    b.innerHTML =
+        '<svg class="sun" viewBox="0 0 16 16" width="16" height="16">' +
+        '<circle cx="8" cy="8" r="3.2" fill="#f5a623"/>' +
+        '<g stroke="#f5a623" stroke-width="1.4" stroke-linecap="round">' +
+        '<path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M13 3l-1.4 1.4M4.4 11.6L3 13"/>' +
+        '</g></svg>' +
+        '<svg class="moon" viewBox="0 0 16 16" width="16" height="16">' +
+        '<path d="M12.5 10.4A5.4 5.4 0 0 1 5.6 3.5a5.5 5.5 0 1 0 6.9 6.9z" fill="#d7d7ff"/>' +
+        '</svg>';
+    b.addEventListener('click', ev => App.toggleTheme(ev));
+    bar.appendChild(b);
+};
+
 App.updateDebugUI = function () {
     const on = Debugger.active;
     UI.enableTool('idDebuggerMenuStop', on);
@@ -1842,6 +2206,13 @@ function init() {
     UI.buildToolbar(document.getElementById('tb-incsearch'), INCSEARCH_TOOLBAR, c => App.incrementalSearch(c));
     document.querySelector('#tb-main .tb-btn[data-id="idToolNew"]')
         .addEventListener('click', () => App.command('idFileNewEmpty'));
+
+    /* the theme switch lives at the end of the main toolbar */
+    App.installThemeButton();
+    let savedTheme = null;
+    try { savedTheme = localStorage.getItem(App.THEME_KEY); } catch (e) { /* private mode */ }
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    App.applyTheme(savedTheme ? savedTheme === 'dark' : prefersDark, false);
 
     /* management panel */
     App.nbManagement = new UI.Notebook('#nb-management', { scrollButtons: true });

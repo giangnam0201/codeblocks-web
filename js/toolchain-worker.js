@@ -253,24 +253,40 @@ function cleanDiagnostics(text) {
     return notes.length ? cleaned.replace(/\n*$/, '\n') + notes.join('\n') + '\n' : cleaned;
 }
 
+/* The libc++ include path is a C++ thing: its <stdio.h> and friends wrap the
+   C ones with C++ declarations, so a C translation unit must not see it. */
+function baseArgs(isC) {
+    if (!isC) return CC1_BASE.slice();
+    const out = [];
+    for (let i = 0; i < CC1_BASE.length; i++) {
+        if (CC1_BASE[i] === '-internal-isystem' && CC1_BASE[i + 1] === '/include/c++/v1') { i++; continue; }
+        out.push(CC1_BASE[i]);
+    }
+    return out;
+}
+
 async function build(fileName, source, options) {
     await init();
     const obj = fileName.replace(/\.[^.]*$/, '') + '.o';
     const out = fileName.replace(/\.[^.]*$/, '') + '.wasm';
     api.memfs.addFile(fileName, source);
 
+    /* A .c file is compiled as C, exactly as gcc would: the C++ standard flag
+       and the libc++ include path have no business in a C translation unit. */
+    const isC = /\.c$/i.test(fileName);
     const clang = await api.getModule('clang');
-    const args = CC1_BASE.concat([
-        '-emit-obj',
-        '-std=' + (options.std || 'c++17'),
-        options.opt || '-O0',
-        '-Wall',
-    ].concat(options.warnings || []));
+    const args = baseArgs(isC)
+        .concat([
+            '-emit-obj',
+            '-std=' + (isC ? (options.cstd || 'c11') : (options.std || 'c++17')),
+            options.opt || '-O0',
+            '-Wall',
+        ].concat(options.warnings || []));
     // Note: do not define _LIBCPP_HAS_NO_THREADS here.  This libc++ was built
     // against an external thread API and rejects that macro outright.
     for (const d of (options.defines || [])) args.push('-D' + d);
     for (const inc of (options.includes || [])) args.push('-I', inc);
-    args.push('-o', obj, '-x', 'c++', fileName);
+    args.push('-o', obj, '-x', isC ? 'c' : 'c++', fileName);
     const c = await capture(() => api.run(clang, 'clang', '-cc1', ...args));
     if (c.exit !== 0) return { ok: false, diagnostics: cleanDiagnostics(c.text) };
 

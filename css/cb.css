@@ -448,7 +448,17 @@ table.log-grid tr.selected td { background: #cce8ff; }
 
 .cb-line-breakpoint  { background: #ffa0a0; }
 .cb-line-debug       { background: #a0a0ff; }
-.cb-line-error       { background: #ff8000; }
+.cb-line-error       { background: #ffd0d0; }
+.cb-line-warning     { background: #fff0c0; }
+
+/* the compiler's markers in the margin, as Scintilla draws them */
+.cb-marker-err, .cb-marker-warn {
+    width: 0.85em; height: 0.85em; margin-left: 0.2em;
+    display: inline-block; vertical-align: middle;
+    border: 1px solid #7d0000;
+    background: linear-gradient(to bottom right, #ff5a5a, #c00000);
+}
+.cb-marker-warn { border-color: #7d6a00; background: linear-gradient(to bottom right, #ffe066, #c0a000); }
 .cb-marker-bp        { width: 1.25em; height: 1.25em; }
 
 /* ----------------------------------------------------- start-here HTML page */
@@ -640,3 +650,258 @@ input.cb, select.cb, textarea.cb {
 
 .hidden { display: none !important; }
 .grow { flex: 1; }
+
+/* ================================================================ dark mode
+
+   Not something the desktop IDE has - it is a web edition extra - so it is
+   built as an overlay: every rule below is scoped to body.cb-dark, and the
+   light theme above is untouched.  The structure, metrics and behaviour stay
+   identical; only the palette changes.
+
+   The switch animates: .theme-anim is on the body for the length of the
+   crossfade, and it is the only time colour transitions are enabled, so
+   nothing else in the IDE pays for them. */
+
+body.cb-dark {
+    --face:            #2d2d30;
+    --face-light:      #3f3f46;
+    --btn-shadow:      #1b1b1c;
+    --btn-hilight:     #4a4a51;
+    --border:          #3f3f46;
+    --caption-a1:      #37506b;
+    --caption-a2:      #2b3d51;
+    --caption-i1:      #33333a;
+    --caption-i2:      #2b2b30;
+    --caption-text:    #e8e8e8;
+    --caption-itext:   #9a9aa4;
+    --menu-hi:         #094771;
+    --menu-hi-border:  #0a5c92;
+    --sash:            #2d2d30;
+    color-scheme: dark;
+}
+
+body.cb-dark { color: #dcdcdc; }
+body.cb-dark #statusbar,
+body.cb-dark .cb-popup .row .accel { color: #dcdcdc; }
+
+/* white surfaces: editors, lists, logs, panels */
+body.cb-dark .cb-popup,
+body.cb-dark .nb-pages,
+body.cb-dark .cb-tree,
+body.cb-dark .log-text,
+body.cb-dark table.log-grid,
+body.cb-dark .CodeMirror,
+body.cb-dark .start-here,
+body.cb-dark .cb-complete,
+body.cb-dark input.cb,
+body.cb-dark select.cb,
+body.cb-dark textarea.cb { background: #1e1e1e; color: #dcdcdc; }
+
+body.cb-dark input.cb,
+body.cb-dark select.cb,
+body.cb-dark textarea.cb { border-color: #3f3f46; }
+body.cb-dark .cb-calltip { background: #2b2b1e; color: #dcdcdc; border-color: #5a5a3a; }
+
+body.cb-dark .cb-popup { border-color: #3f3f46; }
+body.cb-dark .cb-popup .row .sep { background: #3f3f46; }
+body.cb-dark .menubar .item:hover,
+body.cb-dark .cb-popup .row.hover { background: var(--menu-hi); color: #ffffff; }
+
+/* notebook tabs */
+body.cb-dark .nb-tabs { border-bottom-color: #3f3f46; }
+body.cb-dark .nb-tab.active {
+    background: linear-gradient(to bottom, #3f3f46 0%, #1e1e1e 100%);
+    border-color: #55555d;
+}
+body.cb-dark .nb-tab:not(.active):hover { background: rgba(255,255,255,.06); }
+body.cb-dark .nb-tab .tab-close:hover { background: #4a4a51; }
+body.cb-dark .nb-tab .tab-close svg path { stroke: #dcdcdc; }
+body.cb-dark .cb-tab-btn {
+    border-color: #55555d;
+    background: linear-gradient(to bottom, #3f3f46 0%, #2d2d30 100%);
+}
+body.cb-dark .cb-tab-btn:hover { background: #4a4a51; }
+
+/* trees and grids */
+body.cb-dark .tree-row:hover { background: #2a2d2e; }
+body.cb-dark .tree-row.selected { background: #094771; color: #ffffff; }
+body.cb-dark table.log-grid th {
+    background: #2d2d30; color: #dcdcdc;
+    border-right-color: #3f3f46; border-bottom-color: #3f3f46;
+}
+body.cb-dark table.log-grid tr:hover td { background: #2a2d2e; }
+body.cb-dark table.log-grid tr.selected td { background: #094771; color: #ffffff; }
+body.cb-dark table.log-grid tr.error td { color: #f48771; }
+body.cb-dark table.log-grid tr.warning td { color: #cca700; }
+body.cb-dark .log-text .err { color: #f48771; }
+body.cb-dark .log-text .warn { color: #569cd6; }
+
+/* windows, dialogs, hints */
+body.cb-dark .cb-window { border-color: #101010; }
+body.cb-dark .cb-window > .title,
+body.cb-dark .cb-hint-title {
+    background: linear-gradient(to bottom, #3f3f46, #2d2d30);
+    border-bottom-color: #4a4a51;
+    color: #e8e8e8;
+}
+body.cb-dark .cb-window > .buttons { border-top-color: #3f3f46; }
+body.cb-dark .cb-hint { border-color: #101010; }
+body.cb-dark .cb-hint-body kbd { background: #1e1e1e; border-color: #55555d; }
+body.cb-dark .cb-dialog-veil { background: rgba(0,0,0,.35); }
+
+/* toolbars and panes */
+body.cb-dark .toolbar { border-bottom-color: #3f3f46; }
+body.cb-dark .tb-btn:hover { background: #3f3f46; border-color: #55555d; }
+body.cb-dark .tb-sep { background: #3f3f46; }
+body.cb-dark .pane-caption {
+    background: linear-gradient(to bottom, #37506b, #2b3d51);
+    color: #e8e8e8;
+}
+
+/* the editor */
+body.cb-dark .CodeMirror-gutters { background: #252526; border-right-color: #333; }
+body.cb-dark .CodeMirror-linenumber { color: #858585; }
+body.cb-dark .cb-margin-marker,
+body.cb-dark .cb-margin-change,
+body.cb-dark .CodeMirror-foldgutter { background: #252526; }
+body.cb-dark .CodeMirror-cursor { border-left-color: #dcdcdc; }
+body.cb-dark .CodeMirror-selected,
+body.cb-dark .CodeMirror-focused .CodeMirror-selected { background: #264f78 !important; }
+body.cb-dark .CodeMirror-matchingbracket { color: #ffffff !important; background: #0b5f2b; }
+body.cb-dark .cm-matchhighlight { background: #33383d; }
+body.cb-dark .cb-occurrence { background: #365038; }
+body.cb-dark .CodeMirror-activeline-background { background: #232333; }
+body.cb-dark .CodeMirror-ruler { border-left-color: #404040; }
+body.cb-dark .CodeMirror-foldgutter-open:after,
+body.cb-dark .CodeMirror-foldgutter-folded:after {
+    border-color: #6e6e6e; background-color: #252526;
+}
+body.cb-dark .CodeMirror-foldgutter-open:after {
+    background-image: linear-gradient(#d0d0d0, #d0d0d0);
+}
+body.cb-dark .CodeMirror-foldgutter-folded:after {
+    background-image: linear-gradient(#d0d0d0, #d0d0d0), linear-gradient(#d0d0d0, #d0d0d0);
+}
+
+/* the same syntax roles as lexer_cpp.xml, lifted for a dark background */
+body.cb-dark .cm-s-cb .cm-comment      { color: #7f9fd4; }
+body.cb-dark .cm-s-cb .cm-cb-docblock  { color: #93a9ff; }
+body.cb-dark .cm-s-cb .cm-number       { color: #ff79e1; }
+body.cb-dark .cm-s-cb .cm-keyword,
+body.cb-dark .cm-s-cb .cm-builtin,
+body.cb-dark .cm-s-cb .cm-type,
+body.cb-dark .cm-s-cb .cm-atom         { color: #6aa9ff; }
+body.cb-dark .cm-s-cb .cm-variable-3   { color: #e77ce7; }
+body.cb-dark .cm-s-cb .cm-string       { color: #7ec4ff; }
+body.cb-dark .cm-s-cb .cm-string-2     { color: #e0a000; }
+body.cb-dark .cm-s-cb .cm-meta         { color: #4ec94e; }
+body.cb-dark .cm-s-cb .cm-operator,
+body.cb-dark .cm-s-cb .cm-punctuation,
+body.cb-dark .cm-s-cb .cm-bracket      { color: #ff6b6b; }
+body.cb-dark .cm-s-cb .cm-variable,
+body.cb-dark .cm-s-cb .cm-def,
+body.cb-dark .cm-s-cb .cm-property,
+body.cb-dark .cm-s-cb .cm-error        { color: #dcdcdc; }
+
+body.cb-dark .cb-line-error   { background: #4a2222; }
+body.cb-dark .cb-line-warning { background: #4a4022; }
+body.cb-dark .cb-line-debug   { background: #2b2b6b; }
+body.cb-dark .cb-line-breakpoint { background: #5a2626; }
+
+/* the start page is an HTML page of its own */
+body.cb-dark .start-here a { color: #6aa9ff; }
+body.cb-dark .start-here hr { border-color: #3f3f46; }
+
+/* the toolbar's own toggle */
+.tb-theme { position: relative; }
+.tb-theme svg { display: block; }
+.tb-theme .sun, .tb-theme .moon {
+    position: absolute; inset: 3px;
+    transition: transform .45s cubic-bezier(.4,0,.2,1), opacity .35s ease;
+}
+.tb-theme .moon { opacity: 0; transform: rotate(-90deg) scale(.4); }
+body.cb-dark .tb-theme .sun { opacity: 0; transform: rotate(90deg) scale(.4); }
+body.cb-dark .tb-theme .moon { opacity: 1; transform: rotate(0) scale(1); }
+
+/* only while switching, so nothing else in the IDE pays for transitions */
+body.theme-anim,
+body.theme-anim * {
+    transition: background-color .32s ease, color .32s ease,
+                border-color .32s ease, fill .32s ease !important;
+}
+
+/* the sweep that runs across the IDE as the theme flips */
+#theme-sweep {
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    background: radial-gradient(circle at var(--sweep-x, 50%) var(--sweep-y, 0%),
+                rgba(120,170,255,.28), rgba(120,170,255,0) 60%);
+    opacity: 0;
+    animation: theme-sweep .55s ease-out;
+}
+@keyframes theme-sweep {
+    0%   { opacity: 0; transform: scale(.2); }
+    35%  { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.6); }
+}
+
+/* --- dark mode, the remaining light surfaces ------------------------------ */
+
+/* toolbar fields and the target dropdown */
+body.cb-dark .tb-text,
+body.cb-dark .tb-choice {
+    background: #1e1e1e; color: #dcdcdc; border-color: #3f3f46;
+}
+body.cb-dark .tb-btn:hover:not(.disabled) { background: #3e4d5c; border-color: #4a7ba7; }
+body.cb-dark .tb-btn:active:not(.disabled) { background: #2f4356; border-color: #4a7ba7; }
+body.cb-dark .tb-btn.disabled img { opacity: .3; }
+body.cb-dark .tb-sep { background: #3f3f46; border-right-color: #4a4a51; }
+/* the icon art is drawn for a light background: lift it slightly so it does
+   not sink into the dark toolbar */
+body.cb-dark .tb-btn img,
+body.cb-dark .nb-tab .tab-icon,
+body.cb-dark .cb-tree img,
+body.cb-dark .cb-popup .row .gutter img { filter: brightness(1.12) saturate(1.05); }
+
+/* status bar */
+body.cb-dark #statusbar .field {
+    border-left-color: #3f3f46; border-right-color: #232326;
+}
+body.cb-dark #statusbar .field.button {
+    background: linear-gradient(to bottom, #3f3f46, #2d2d30);
+    border-color: #4a4a51;
+}
+body.cb-dark #statusbar .field.button:hover { background: #3e4d5c; border-color: #4a7ba7; }
+
+/* dialog buttons */
+body.cb-dark button.cb,
+body.cb-dark .cb-window > .buttons button {
+    background: linear-gradient(to bottom, #3f3f46, #33333a);
+    border: 1px solid #55555d; color: #e8e8e8;
+}
+body.cb-dark button.cb:hover { background: #45566a; border-color: #4a7ba7; }
+body.cb-dark button.cb:disabled { color: #77777f; background: #313136; }
+
+/* start page: the title bitmap has a white background baked into it, so in
+   dark mode it sits on a plaque instead of clashing with the page */
+body.cb-dark .start-here img[src*="title_"] {
+    background: #ffffff;
+    padding: 10px 14px;
+    border-radius: 6px;
+    box-shadow: 0 2px 14px rgba(0,0,0,.5);
+}
+body.cb-dark .start-here hr,
+body.cb-dark .start-here table td { border-color: #3f3f46; }
+
+/* scrollbars follow the theme */
+body.cb-dark ::-webkit-scrollbar { width: 14px; height: 14px; }
+body.cb-dark ::-webkit-scrollbar-track { background: #1e1e1e; }
+body.cb-dark ::-webkit-scrollbar-thumb { background: #424248; border: 3px solid #1e1e1e; border-radius: 7px; }
+body.cb-dark ::-webkit-scrollbar-thumb:hover { background: #5a5a62; }
+
+/* the console window keeps its black screen, but the frame follows */
+body.cb-dark #console-window .cb-window { border-color: #101010; }
+
+/* the start page is the real Code::Blocks HTML, which colours its links with
+   <font color="#0000ff"> - unreadable on a dark page */
+body.cb-dark .start-here font[color] { color: #6aa9ff !important; }
+body.cb-dark .start-here b { color: #e8e8e8; }

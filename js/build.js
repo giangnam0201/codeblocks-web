@@ -29,6 +29,44 @@ Build.log = function (text, cls) { App.logAppend('build', text, cls); };
 Build.clearMessages = function () {
     Build.errors = [];
     App.buildMessagesClear();
+    App.setBuildErrors([]);          // and the red marks from the last build
+};
+
+/* Which function a line belongs to, printed the way gcc prints it:
+   "In function 'void sangnt(int)':".  Walks braces from the top so a line
+   inside a nested block still resolves to the function that opened it. */
+Build.functionAt = function (source, line) {
+    const lines = source.split('\n');
+    /* The opening brace may sit on the next line - which is how the desktop's
+       own sample code is written - so the signature is remembered until a
+       brace actually opens a body. */
+    const sigRe = /^[ \t]*(?:(?:inline|static|const|constexpr|virtual|explicit|extern)\s+)*([A-Za-z_][\w:<>,\s*&]*?)\s+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)?)\s*\(([^;{)]*)\)\s*(?:const\s*)?(?:noexcept\s*)?\{?\s*$/;
+    let depth = 0, current = null, pending = null;
+    for (let i = 0; i < lines.length && i < line; i++) {
+        // comments and literals must not contribute braces
+        const text = lines[i]
+            .replace(/\/\/.*$/, '')
+            .replace(/"(\\.|[^"\\])*"/g, '""')
+            .replace(/'(\\.|[^'\\])*'/g, "''");
+        if (depth === 0) {
+            const m = sigRe.exec(text);
+            if (m && !/^(if|for|while|switch|catch|else|do|return|sizeof)$/.test(m[2])) {
+                const ret = m[1].trim().replace(/\s+/g, ' ');
+                // gcc prints the parameter types without their names
+                const args = m[3].split(',').map(a => a.trim().replace(/\s+/g, ' ')
+                        .replace(/\s+[A-Za-z_]\w*\s*(\[\s*\])?$/, '$1'))
+                    .filter(Boolean).join(', ');
+                pending = `${ret} ${m[2]}(${args})`;
+            } else if (text.trim() && text.indexOf('{') < 0) {
+                pending = null;          // something else came between
+            }
+        }
+        for (const ch of text) {
+            if (ch === '{') { if (depth === 0 && pending) { current = pending; pending = null; } depth++; }
+            else if (ch === '}') { depth--; if (depth <= 0) { depth = 0; current = null; } }
+        }
+    }
+    return current;
 };
 
 Build.addMessage = function (file, line, message, type) {
@@ -61,8 +99,12 @@ Build.doBuild = async function (options) {
     Build.log('-------------- ' + banner + '---------------\n\n');
     Build.addMessage('', '', '=== ' + banner + ' ===', 'info');
 
-    const objDir = `obj\\${target}\\`;
-    const binDir = `bin\\${target}\\`;
+    /* The wizard can give each configuration its own output directories; when
+       it has, the build writes where the project says. */
+    const dirs = (project && project.outputDirs && project.outputDirs[target]) || null;
+    const slash = d => d.replace(/[\\/]*$/, '\\');
+    const objDir = dirs && dirs.obj ? slash(dirs.obj) : `obj\\${target}\\`;
+    const binDir = dirs && dirs.out ? slash(dirs.out) : `bin\\${target}\\`;
     const base = file.name.replace(/\.[^.]*$/, '');
     // the executable is named after the source file, as it is when you build a
     // single file in Code::Blocks (14.cpp -> 14.exe)
@@ -70,7 +112,10 @@ Build.doBuild = async function (options) {
     const exe = `${binDir}${exeName}`;
     const bo = App.buildOptions || {};
     const opt = target === 'Debug' ? (bo.optDebug || '-O0') : (bo.optRelease || '-O2');
-    const std = bo.std || 'c++17';
+    // a .c file is a C translation unit, and the log says gcc like the desktop
+    const isC = /\.c$/i.test(file.name);
+    const cc = isC ? 'gcc.exe' : 'g++.exe';
+    const std = isC ? (bo.cstd || 'c11') : (bo.std || 'c++17');
     const warnings = [bo.wall !== false ? '-Wall' : '', bo.wextra ? '-Wextra' : '',
                       bo.pedantic ? '-pedantic' : ''].filter(Boolean);
     const defines = (bo.defines || '').split(/\s+/).filter(Boolean);
@@ -81,7 +126,7 @@ Build.doBuild = async function (options) {
     if (!Toolchain.loaded)
         Build.log('Loading the C++ toolchain (clang + libc++); this happens once...\n');
 
-    Build.log(`g++.exe ${flags} -std=${std}  -c ${App.projectPath}\\${file.name} -o ${objDir}${base}.o\n`);
+    Build.log(`${cc} ${flags} -std=${std}  -c ${App.projectPath}\\${file.name} -o ${objDir}${base}.o\n`);
 
     let errorCount = 0, warningCount = 0, ok = false, built = null;
 
@@ -95,23 +140,37 @@ Build.doBuild = async function (options) {
         const raw = built.diagnostics || '';
         if (raw.trim()) Build.log(raw.replace(/\n?$/, '\n'), built.ok ? 'warn' : 'err');
 
-        for (const d of Toolchain.parseDiagnostics(raw, file.name)) {
+        /* The Build messages grid the desktop shows: the full path, the line,
+           and the message - grouped under the function the error is in, the
+           way gcc reports it. */
+        const diags = Toolchain.parseDiagnostics(raw, file.name);
+        const fullPath = `${App.projectPath}\\${file.name}`;
+        let lastFunc = null;
+        for (const d of diags) {
             if (d.kind === 'note') continue;
             if (d.kind === 'warning') warningCount++; else errorCount++;
-            Build.addMessage(d.file, d.line ? String(d.line) : '',
+            const fn = d.line ? Build.functionAt(source, d.line) : null;
+            if (fn && fn !== lastFunc) {
+                Build.addMessage(fullPath, '', `In function '${fn}':`, 'info');
+                lastFunc = fn;
+            }
+            Build.addMessage(fullPath, d.line ? String(d.line) : '',
                              `${d.kind}: ${d.message}`,
                              d.kind === 'warning' ? 'warning' : 'error');
         }
+        // red boxes in the margin, on the lines the compiler named
+        App.setBuildErrors(diags.filter(d => d.kind !== 'note')
+                                .map(d => ({ file: file.name, line: d.line, kind: d.kind })));
         if (!built.ok && errorCount === 0) errorCount = 1;
         ok = built.ok && errorCount === 0;
     } catch (e) {
         errorCount = 1;
-        Build.log(`g++.exe: internal error: ${e.message}\n`, 'err');
+        Build.log(`${cc}: internal error: ${e.message}\n`, 'err');
         Build.addMessage(file.name, '', 'error: ' + e.message, 'error');
     }
 
     if (ok) {
-        Build.log(`g++.exe  -o ${exe} ${objDir}${base}.o\n`);
+        Build.log(`${cc}  -o ${exe} ${objDir}${base}.o\n`);
         Build.log(`Output file is ${exe} with size ${(built.size / 1024).toFixed(2)} KB\n`);
         Build.lastBuild = { source, exe, exeName, target, file, flags, id: built.id };
         // let the Files panel show what the build produced
