@@ -963,3 +963,14 @@ body.cb-dark .vnoi-statement-body pre { background: #252526; border-color: #3f3f
 }
 body.cb-dark .vnoi-statement-body table td,
 body.cb-dark .vnoi-statement-body table th { border-color: #3f3f46; }
+
+/* the contest this account is inside: green, and pinned to the top */
+.vnoi-item.vnoi-current {
+    background: #e8f7ea;
+    border-left: 3px solid #1f8a3d;
+}
+.vnoi-item.vnoi-current .vnoi-item-title { color: #1f6b32; font-weight: bold; }
+.vnoi-item.vnoi-current:hover { background: #dcf2e0; }
+body.cb-dark .vnoi-item.vnoi-current { background: #16301c; border-left-color: #4ec94e; }
+body.cb-dark .vnoi-item.vnoi-current .vnoi-item-title { color: #7fe08a; }
+body.cb-dark .vnoi-item.vnoi-current:hover { background: #1c3d23; }

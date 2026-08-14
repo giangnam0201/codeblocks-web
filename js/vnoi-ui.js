@@ -358,56 +358,120 @@ VnoiUI.submitCurrent = function (code) {
 
 VnoiUI.buildContests = function (host) {
     host.innerHTML = '';
-    const bar = vel('div', 'vnoi-row');
-    bar.appendChild(vbutton('Refresh', () => VnoiUI.loadContests()));
-    const note = vel('span', 'vnoi-dim');
+    const search = vel('div', 'vnoi-row');
+    const box = vel('input', 'cb');
+    box.placeholder = 'Search contests...';
+    box.id = 'vnoi-contest-search';
+    box.style.flex = '1';
+    search.appendChild(box);
+    search.appendChild(vbutton('Refresh', () => VnoiUI.loadContests(box.value)));
+    host.appendChild(search);
+
+    const note = vel('div', 'vnoi-dim');
     note.id = 'vnoi-note';
-    bar.appendChild(note);
-    host.appendChild(bar);
+    note.style.padding = '0 4px';
+    host.appendChild(note);
+
     const list = vel('div', 'vnoi-list');
     list.id = 'vnoi-contest-list';
     host.appendChild(list);
+
+    // filter as you type; the list is already in memory
+    box.addEventListener('input', () => VnoiUI.drawContests(box.value));
+    box.addEventListener('keydown', ev => { if (ev.key === 'Enter') VnoiUI.loadContests(box.value); });
     VnoiUI.loadContests();
 };
 
-VnoiUI.loadContests = function () {
+VnoiUI.loadContests = function (search) {
     return VnoiUI.guard('Loading contests', async () => {
         const groups = await VNOI.contests();
-        const list = document.getElementById('vnoi-contest-list');
-        if (!list) return;
-        list.innerHTML = '';
-        const section = (title, items) => {
-            if (!items.length) return;
-            list.appendChild(vel('div', 'vnoi-section', title));
-            items.forEach(c => {
-                const row = vel('div', 'vnoi-item');
-                row.innerHTML =
-                    `<div class="vnoi-item-title">${escapeHtml(c.title)}</div>` +
-                    `<div class="vnoi-dim">${escapeHtml(c.time)}` +
-                    (c.users ? ' &middot; ' + escapeHtml(c.users) + ' users' : '') + '</div>';
-                const acts = vel('div', 'vnoi-row');
-                acts.appendChild(vbutton('Problems', () => VnoiUI.openContest(c.key)));
-                acts.appendChild(vbutton('Ranking', () => VnoiUI.showRanking(c.key)));
-                if (c.joined) acts.appendChild(vbutton('Leave', () => VnoiUI.leave(c.key)));
-                else if (c.canJoin) acts.appendChild(vbutton('Join', () => VnoiUI.join(c.key)));
-                row.appendChild(acts);
-                list.appendChild(row);
-            });
-        };
-        section('Running / joined', groups.active);
-        section('Upcoming', groups.upcoming);
-        section('Past', groups.past);
+        VnoiUI.state.contests = groups;
+        if (VNOI.loggedIn()) await VNOI.currentContest();
+        VnoiUI.drawContests(search === undefined
+            ? (document.getElementById('vnoi-contest-search') || {}).value
+            : search);
         App.logAppend('vnoi',
-            `Contests: ${groups.active.length} running, ${groups.upcoming.length} upcoming, ${groups.past.length} past.\n`);
-    });
+            `Contests: ${groups.active.length} running, ${groups.upcoming.length} upcoming, ` +
+            `${groups.past.length} past.` +
+            (VNOI.contest ? ` In contest: ${VNOI.contest.title}.` : '') + '\n');
+    }, 'vnoi-contest-list');
 };
 
+/* Draws whatever is in memory, filtered.  The contest this account is inside
+   is marked green and pinned to the top, because it is the one that decides
+   where a submission goes. */
+VnoiUI.drawContests = function (search) {
+    const list = document.getElementById('vnoi-contest-list');
+    const groups = VnoiUI.state.contests;
+    if (!list || !groups) return;
+    const needle = (search || '').trim().toLowerCase();
+    const match = c => !needle || c.title.toLowerCase().includes(needle) ||
+                       c.key.toLowerCase().includes(needle);
+    const current = VNOI.contest && VNOI.contest.key;
+
+    list.innerHTML = '';
+    const note = document.getElementById('vnoi-note');
+    if (note) {
+        note.textContent = current
+            ? 'You are in: ' + VNOI.contest.title
+            : (VNOI.loggedIn() ? 'Not in a contest.' : 'Sign in to join contests.');
+        note.className = current ? 'vnoi-ac' : 'vnoi-dim';
+    }
+
+    const rowFor = c => {
+        const row = vel('div', 'vnoi-item' + (c.key === current ? ' vnoi-current' : ''));
+        row.innerHTML =
+            `<div class="vnoi-item-title">${c.key === current ? '&#9679; ' : ''}${escapeHtml(c.title)}</div>` +
+            `<div class="vnoi-dim">${escapeHtml(c.time)}` +
+            (c.users ? ' &middot; ' + escapeHtml(c.users) + ' users' : '') + '</div>';
+        const acts = vel('div', 'vnoi-row');
+        acts.appendChild(vbutton('Problems', () => VnoiUI.openContest(c.key)));
+        acts.appendChild(vbutton('Ranking', () => VnoiUI.showRanking(c.key)));
+        if (c.key === current) acts.appendChild(vbutton('Leave', () => VnoiUI.leave(c.key)));
+        else if (c.canJoin || c.joined) acts.appendChild(vbutton('Join', () => VnoiUI.join(c.key)));
+        row.appendChild(acts);
+        return row;
+    };
+
+    const all = [].concat(groups.active, groups.upcoming, groups.past);
+    const inNow = current ? all.filter(c => c.key === current) : [];
+    if (inNow.length) {
+        list.appendChild(vel('div', 'vnoi-section', 'In progress'));
+        inNow.forEach(c => list.appendChild(rowFor(c)));
+    }
+    const section = (title, items) => {
+        const rows = items.filter(c => c.key !== current).filter(match);
+        if (!rows.length) return;
+        list.appendChild(vel('div', 'vnoi-section', title));
+        rows.forEach(c => list.appendChild(rowFor(c)));
+    };
+    section('Running / joined', groups.active);
+    section('Upcoming', groups.upcoming);
+    section('Past', groups.past);
+
+    if (!list.querySelector('.vnoi-item'))
+        list.appendChild(vel('div', 'vnoi-dim', 'No contest matches "' + (search || '') + '".'));
+};
+
+/* VNOI allows one contest at a time, so joining a second one leaves the first.
+   Doing that silently would be worse than not doing it - a submission going to
+   the wrong contest is invisible - so it is confirmed and logged. */
 VnoiUI.join = function (key) {
     return VnoiUI.guard('Joining ' + key, async () => {
+        if (!VNOI.loggedIn()) { VnoiUI.loginDialog(); return; }
+        const now = await VNOI.currentContest();
+        if (now && now.key && now.key !== key) {
+            const ok = await UI.messageBox(
+                `You are in "${now.title}".\nVNOI allows one contest at a time, so joining ` +
+                `"${key}" will leave it first.\n\nContinue?`,
+                'VNOI', ['Yes', 'No'], '❓');
+            if (ok !== 'Yes') return;
+            App.logAppend('vnoi', `Leaving ${now.key} first (VNOI allows one contest at a time).\n`);
+        }
         await VNOI.join(key);
         App.logAppend('vnoi', `Joined contest ${key}.\n`);
-        UI.setStatus(0, 'VNOI: joined ' + key);
-        VnoiUI.loadContests();
+        UI.setStatus(0, 'VNOI: in contest ' + key);
+        await VnoiUI.loadContests();
         VnoiUI.openContest(key);
     });
 };
@@ -418,7 +482,8 @@ VnoiUI.leave = function (key) {
         if (ok !== 'Yes') return;
         await VNOI.leave(key);
         App.logAppend('vnoi', `Left contest ${key}.\n`);
-        VnoiUI.loadContests();
+        UI.setStatus(0, 'VNOI: left ' + key);
+        await VnoiUI.loadContests();
     });
 };
 

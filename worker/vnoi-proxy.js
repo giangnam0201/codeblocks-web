@@ -29,6 +29,7 @@ const UPSTREAM = 'https://oj.vnoi.info';
 /* Origins allowed to use this Worker.  Anything else gets a plain 403 - this
    is what stops it becoming a public proxy for someone else's scraper. */
 const ALLOWED_ORIGINS = [
+    'https://vnoi.codeblocks.bond',        // the IDE, on Cloudflare Pages
     'https://codeblocks.bond',
     'https://www.codeblocks.bond',
     'http://localhost:8899',
@@ -58,6 +59,24 @@ function corsHeaders(origin) {
 
 export default {
     async fetch(request) {
+        /* A thrown exception here reaches the browser as Cloudflare's bare
+           "error 1101", which says nothing.  Anything that goes wrong should
+           come back as a message the IDE can show. */
+        try {
+            return await handle(request);
+        } catch (e) {
+            const origin = request.headers.get('Origin') || '';
+            return new Response('vnoi-proxy failed: ' + (e && e.stack ? e.stack : e), {
+                status: 502,
+                headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' },
+                                       ALLOWED_ORIGINS.includes(origin) ? corsHeaders(origin) : {}),
+            });
+        }
+    },
+};
+
+async function handle(request) {
+    {
         const origin = request.headers.get('Origin') || '';
         const allowed = ALLOWED_ORIGINS.includes(origin);
 
@@ -135,13 +154,22 @@ export default {
             if (HOP_BY_HOP.has(lower) || STRIP.has(lower)) continue;
             out.set(k, v);
         }
-        if (setCookies.length) out.set('X-VNOI-Set-Cookie', setCookies.join('\n'));
+        /* Only the name=value pairs go back, joined the way a Cookie header
+           is written.  The attributes are dropped on purpose: the client has
+           no use for them, and a header value may not contain the newline a
+           list of full Set-Cookie lines would need. */
+        if (setCookies.length) {
+            const pairs = setCookies
+                .map(sc => sc.split(';')[0].trim())
+                .filter(p => p.includes('='));
+            if (pairs.length) out.set('X-VNOI-Set-Cookie', pairs.join('; '));
+        }
         out.set('X-VNOI-Status', String(upstream.status));
         out.set('X-VNOI-Url', finalUrl);
 
         return new Response(upstream.body, { status: upstream.status, headers: out });
-    },
-};
+    }
+}
 
 function collect(res, into) {
     // getSetCookie() is the only way to see every Set-Cookie separately

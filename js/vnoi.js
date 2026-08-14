@@ -16,12 +16,13 @@
 'use strict';
 
 const VNOI = {
-    /* Where the relay lives.  The custom domain is the address to use; the
-       workers.dev one is the same Worker under the name Cloudflare gives it,
-       kept as a fallback because a resolver that has not yet caught up with a
-       fresh subdomain would otherwise leave the pane dead. */
-    PROXY: localStorage.getItem('vnoi.proxy') || 'https://vnoi.codeblocks.bond/vnoi',
-    FALLBACK: 'https://vnoi-proxy.namdev-account.workers.dev/vnoi',
+    /* Where the relay lives.  It answers on its workers.dev address: a CORS
+       preflight to a hostname on the codeblocks.bond zone is dropped at
+       Cloudflare's edge before it ever reaches the Worker, and every POST here
+       is preflighted because of the X-VNOI-Cookie header. */
+    PROXY: localStorage.getItem('vnoi.proxy') ||
+           'https://vnoi-proxy.namdev-account.workers.dev/vnoi',
+    FALLBACK: '',
     BASE: 'https://oj.vnoi.info',
     jar: {},
     user: null,            // {name, points, rating} once logged in
@@ -53,13 +54,15 @@ VNOI.saveJar = function () {
 VNOI.cookieHeader = function () {
     return Object.keys(VNOI.jar).map(k => k + '=' + VNOI.jar[k]).join('; ');
 };
+/* The relay hands back what the judge set as one "name=value; name=value"
+   string - a header cannot carry the newlines a list of full Set-Cookie lines
+   would need. */
 VNOI.takeCookies = function (res) {
     const raw = res.headers.get('X-VNOI-Set-Cookie');
     if (!raw) return;
-    raw.split('\n').forEach(line => {
-        const first = line.split(';')[0];
-        const i = first.indexOf('=');
-        if (i > 0) VNOI.jar[first.slice(0, i).trim()] = first.slice(i + 1).trim();
+    raw.split(';').forEach(part => {
+        const i = part.indexOf('=');
+        if (i > 0) VNOI.jar[part.slice(0, i).trim()] = part.slice(i + 1).trim();
     });
     VNOI.saveJar();
 };
@@ -116,6 +119,15 @@ VNOI.csrf = function (doc, formSel) {
 
 const txt = el => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
 
+/* The header's contest link carries the countdown inside it, so the clock has
+   to come out before the name is readable. */
+function contestTitle(link) {
+    if (!link) return '';
+    const copy = link.cloneNode(true);
+    copy.querySelectorAll('#contest-time-remaining, .time-remaining').forEach(n => n.remove());
+    return txt(copy).replace(/\s*[-–]\s*$/, '');
+}
+
 /* ================================================================ account */
 
 VNOI.loggedIn = () => !!(VNOI.user && VNOI.user.name);
@@ -153,13 +165,20 @@ VNOI.whoami = async function () {
     } else {
         VNOI.user = { name, points: txt(res.doc.querySelector('#user-links .rating')) || '' };
     }
-    // a contest in progress is announced in the header
-    const inContest = res.doc.querySelector('#contest-info, .contest-info');
-    VNOI.contest = inContest
-        ? { key: (inContest.querySelector('a') || {}).getAttribute
-                 ? inContest.querySelector('a').getAttribute('href').split('/').filter(Boolean).pop() : '',
-            title: txt(inContest.querySelector('a')) || txt(inContest) }
-        : null;
+    /* A contest in progress is announced in the header of every page, with
+       its link and the clock. */
+    const info = res.doc.querySelector('#contest-info');
+    const contestLink = info && info.querySelector('a[href*="/contest/"]');
+    if (contestLink) {
+        const parts = (contestLink.getAttribute('href') || '').split('/').filter(Boolean);
+        VNOI.contest = {
+            key: parts[parts.indexOf('contest') + 1] || parts[parts.length - 1],
+            title: contestTitle(contestLink),
+            timeLeft: txt(res.doc.querySelector('#contest-time-remaining')),
+        };
+    } else {
+        VNOI.contest = null;
+    }
     VNOI.saveJar();
     return VNOI.user;
 };
@@ -378,9 +397,10 @@ VNOI.submissions = async function (opts) {
 
 /* =============================================================== contests */
 
-VNOI.contests = async function () {
+VNOI.contests = async function (search) {
     const res = await VNOI.req('/contests/');
     const groups = { active: [], upcoming: [], past: [] };
+    const needle = (search || '').trim().toLowerCase();
     // the page lists them in sections; the join form tells us what we can do
     res.doc.querySelectorAll('.contest-block').forEach(block => {
         const a = block.querySelector('.contest-list-title');
@@ -398,6 +418,11 @@ VNOI.contests = async function () {
             canJoin: !!joinForm,
             joined: !!leaveForm,
         };
+        // the search runs here: the judge's contest page has no search box
+        if (needle && !(item.title.toLowerCase().includes(needle) ||
+                        item.key.toLowerCase().includes(needle) ||
+                        item.tags.join(' ').toLowerCase().includes(needle))) return;
+
         const section = block.closest('div[class*="contest-list"], section, .content-description');
         const heading = section ? txt(section.querySelector('h3, h4')) : '';
         if (/đang diễn ra|active|ongoing/i.test(heading) || item.joined) groups.active.push(item);
@@ -419,8 +444,40 @@ VNOI.contestAction = async function (key, action) {
     await VNOI.whoami();
     return true;
 };
-VNOI.join = key => VNOI.contestAction(key, 'join');
-VNOI.leave = key => VNOI.contestAction(key, 'leave');
+
+/* Which contest this account is inside right now.
+
+   Not the contests list: that page only ever offers "join" buttons, whether
+   or not you are in one.  Every page carries #contest-info in the header while
+   a participation is open, with the contest's own link and the clock. */
+VNOI.currentContest = async function () {
+    const res = await VNOI.req('/');
+    const info = res.doc.querySelector('#contest-info');
+    const link = info && info.querySelector('a[href*="/contest/"]');
+    if (!link) { VNOI.contest = null; return null; }
+    const parts = (link.getAttribute('href') || '').split('/').filter(Boolean);
+    VNOI.contest = {
+        key: parts[parts.indexOf('contest') + 1] || parts[parts.length - 1],
+        title: contestTitle(link),
+        timeLeft: txt(res.doc.querySelector('#contest-time-remaining')),
+    };
+    return VNOI.contest;
+};
+
+/* Joining a contest leaves the one already in progress: VNOI allows only one
+   at a time, and a stale one silently swallows every submission. */
+VNOI.join = async function (key) {
+    const now = await VNOI.currentContest();
+    if (now && now.key && now.key !== key) await VNOI.contestAction(now.key, 'leave');
+    await VNOI.contestAction(key, 'join');
+    await VNOI.currentContest();
+    return VNOI.contest;
+};
+VNOI.leave = async function (key) {
+    await VNOI.contestAction(key, 'leave');
+    await VNOI.currentContest();
+    return true;
+};
 
 VNOI.contestProblems = async function (key) {
     const res = await VNOI.req('/contest/' + key);

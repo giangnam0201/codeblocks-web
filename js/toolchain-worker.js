@@ -13,6 +13,12 @@ importScripts('sdk-headers.js');
 importScripts('gnu-headers.js');
 
 const BASE = '../vendor/wasm-clang/';
+/* clang is 31 MB, which is over the per-file limit on Cloudflare Pages and
+   Workers, so a deployment there cannot carry the toolchain itself.  The files
+   are served from the main site with Access-Control-Allow-Origin: *, so they
+   can be fetched from wherever this copy of the IDE happens to run.  Local
+   first, and only if that is not there does it reach across. */
+const REMOTE_BASE = 'https://codeblocks.bond/vendor/wasm-clang/';
 const CACHE = 'cbweb-toolchain-v1';
 
 /* Uncompressed sizes, for the loading percentage. */
@@ -98,8 +104,23 @@ let nextModuleId = 1;
 
 function post(msg) { self.postMessage(msg); }
 
+/* Which base actually has the files.  Decided once, on the first asset. */
+let assetBase = null;
+async function resolveBase() {
+    if (assetBase) return assetBase;
+    try {
+        const probe = await fetch(BASE + 'memfs', { method: 'HEAD' });
+        assetBase = probe.ok ? BASE : REMOTE_BASE;
+    } catch (e) {
+        assetBase = REMOTE_BASE;
+    }
+    if (assetBase === REMOTE_BASE)
+        post({ type: 'note', text: 'Loading the compiler from codeblocks.bond' });
+    return assetBase;
+}
+
 async function fetchAsset(name) {
-    const url = BASE + name;
+    const url = (await resolveBase()) + name;
     let response = null;
     if (self.caches) {
         try {

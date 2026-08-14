@@ -16,8 +16,9 @@ compatibility_date = "2026-01-01"
 # caught up with the subdomain yet.
 workers_dev = true
 
-# Served from the same domain as the IDE.  custom_domain = true makes
-# Cloudflare create the DNS record and the certificate itself.
-routes = [
-  { pattern = "vnoi.codeblocks.bond", custom_domain = true }
-]
+# No custom domain: the proxy answers on its workers.dev address.  That name
+# is what the IDE calls, and it is the one address where the browser's CORS
+# preflight actually gets through - OPTIONS on the codeblocks.bond zone is
+# dropped at the edge before it reaches the Worker.
+#
+# vnoi.codeblocks.bond belongs to the Pages project that serves the IDE.
