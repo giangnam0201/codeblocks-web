@@ -1496,7 +1496,9 @@ App.updateDebugUI = function () {
 };
 
 function init() {
-    /* menu bar + accelerators */
+    /* menu bar + accelerators.  Shortcuts the browser keeps for itself get a
+       second binding first, so the menus show the chord that really works. */
+    const moved = UI.applyBrowserAccelerators(CB_MENUS);
     UI.buildMenuBar(CB_MENUS, item => App.command(item.id));
     UI.initPaneButtons();
 
@@ -1510,6 +1512,24 @@ function init() {
             App.command(hit.id);
         }
     });
+
+    /* Full screen is the one place a page may take the browser's own chords:
+       the Keyboard Lock API hands Ctrl+W, Ctrl+Shift+N and friends to us, so
+       full screen gives the exact desktop key map. */
+    document.addEventListener('fullscreenchange', () => {
+        const kb = navigator.keyboard;
+        if (!kb || !kb.lock) return;
+        if (document.fullscreenElement) {
+            kb.lock().then(() => {
+                App.keysLocked = true;
+                UI.setStatus(0, 'Full screen - the desktop shortcuts are all active');
+            }).catch(() => {});
+        } else if (App.keysLocked) {
+            App.keysLocked = false;
+            kb.unlock();
+        }
+    });
+
 
     /* toolbars */
     UI.buildToolbar(document.getElementById('tb-main'), MAIN_TOOLBAR, c => App.command(c.id));
@@ -1657,6 +1677,15 @@ function init() {
     App.logAppend('app', 'Code::Blocks 25.03 (web edition)\n');
     App.logAppend('app', 'Loaded C/C++ lexer from the stock Code::Blocks configuration.\n');
     App.logAppend('app', 'Scanning for compilers...\n');
+    if (UI.remappedAccels.length) {
+        App.logAppend('app',
+            `This browser keeps ${UI.remappedAccels.length} of the standard shortcuts for itself; ` +
+            'those commands answer to a second key here:\n');
+        UI.remappedAccels.forEach(m => App.logAppend('app',
+            `    ${UI.accelText(m.to)}\t${m.label.replace(/&/g, '')}   (desktop: ${UI.accelText(m.from)})\n`));
+        App.logAppend('app', '    Settings -> Editor -> Keyboard shortcuts lists them all; ' +
+            'View -> Full screen gives the originals back.\n');
+    }
     App.logAppend('debugger', 'Active debugger: GDB/CDB debugger : Default\n');
     App.startToolchain();
 
@@ -1677,7 +1706,14 @@ function init() {
     UI.enableTool('idCompilerMenuKillProcess', false);
 
     window.addEventListener('resize', App.refreshEditors);
-    window.addEventListener('beforeunload', () => App.persist());
+    /* Ctrl+W belongs to the browser and closes the tab, so unsaved work needs
+       the one guard a page is allowed: the "Leave site?" prompt. */
+    window.addEventListener('beforeunload', ev => {
+        App.persist();
+        if (!App.files.some(f => f.modified)) return;
+        ev.preventDefault();
+        ev.returnValue = '';
+    });
     setInterval(() => App.persist(), 20000);
 }
 

@@ -261,6 +261,13 @@ body.show-mnemonics .mnem { text-decoration: underline; }
     opacity: .75;
 }
 .nb-tab .tab-close:hover { background: #d0d0d0; border-radius: 2px; opacity: 1; }
+.nb-tab .tab-close.pressed { background: #b8b8b8; border-radius: 2px; opacity: 1; }
+.cb-tab-btn {
+    padding: 2px 8px; border: 1px solid #8b8b8b; border-bottom: none;
+    background: linear-gradient(to bottom, var(--face) 0%, #ffffff 100%);
+}
+.cb-tab-btn:hover { background: #ffffff; }
+.nb-tab .tab-close svg { pointer-events: none; }
 .nb-pages { flex: 1; min-height: 0; position: relative; background: #fff; }
 .nb-page { position: absolute; inset: 0; display: none; overflow: auto; }
 .nb-page.active { display: block; }

@@ -53,18 +53,91 @@ UI.art = function (stockId) {
 // wx accelerator strings ("Ctrl-Shift-F9") -> readable + matchable form.
 UI.accelText = a => a ? a.replace(/-/g, '+') : '';
 
+function normKey(k) {
+    k = String(k).toUpperCase();
+    const map = {
+        DEL: 'DELETE', INS: 'INSERT', PGUP: 'PAGEUP', PGDN: 'PAGEDOWN',
+        ESC: 'ESCAPE', RETURN: 'ENTER', SPACE: ' ',
+    };
+    return map[k] || k;
+}
+
 function parseAccel(a) {
     if (!a) return null;
-    const parts = a.split('-');
+    /* the XRC strings are inconsistent: "Ctrl-Shift-F9", "Ctrl+Tab",
+       "SHIFT-F11", "Shift+Return" - accept every spelling. */
+    const parts = a.split(/[-+]/).filter(Boolean);
     const key = parts.pop();
-    return {
-        ctrl:  parts.includes('Ctrl'),
-        shift: parts.includes('Shift'),
-        alt:   parts.includes('Alt'),
-        key:   key.toUpperCase(),
-    };
+    const has = n => parts.some(p => p.toLowerCase() === n);
+    return { ctrl: has('ctrl'), shift: has('shift'), alt: has('alt'), key: normKey(key) };
 }
 UI.parseAccel = parseAccel;
+
+/* canonical name of a chord, so the two spellings of the same shortcut
+   ("Shift-Ctrl-C" and "Ctrl+Shift+C") compare equal */
+UI.accelId = function (a) {
+    const p = parseAccel(a);
+    if (!p) return '';
+    return (p.ctrl ? 'Ctrl-' : '') + (p.alt ? 'Alt-' : '') + (p.shift ? 'Shift-' : '') + p.key;
+};
+
+/* ------------------------------------------------- browser-stolen shortcuts
+
+   Some chords never reach the page: the browser acts on them itself and
+   preventDefault() has no effect.  Ctrl+Shift+N opens an InPrivate window in
+   Edge and Chrome, Ctrl+W closes the tab, Ctrl+R reloads.  Firefox reserves a
+   different set, which is why the same key can work in one browser and not the
+   other.  Every command bound to a stolen chord gets a second, free chord so
+   the command is still reachable; the menu shows whichever one works here. */
+UI.browserReserves = (function () {
+    const gecko = /\bGecko\/|\bFirefox\//.test(navigator.userAgent) &&
+                  !/\bChrome\//.test(navigator.userAgent);
+    const both = [
+        'Ctrl-N', 'Ctrl-T', 'Ctrl-W', 'Ctrl-R', 'Ctrl-TAB', 'Ctrl-Shift-TAB',
+        'Ctrl-Shift-T', 'Ctrl-Shift-W', 'Ctrl-Shift-R', 'Ctrl-Shift-I',
+        'Ctrl-Shift-J', 'Ctrl-Shift-DELETE', 'F11', 'F12',
+    ];
+    const chromium = [
+        'Ctrl-Shift-N', 'Ctrl-Shift-B', 'Ctrl-Shift-C', 'Ctrl-Shift-D',
+        'Ctrl-Shift-M', 'Ctrl-Shift-O',
+    ];
+    const firefox = ['Ctrl-Shift-P', 'Ctrl-Shift-A', 'Ctrl-Shift-K', 'Ctrl-Shift-E'];
+    return new Set(both.concat(gecko ? firefox : chromium));
+})();
+
+/* Ctrl+Alt+Tab belongs to Windows, so tab switching needs its own escape. */
+const ACCEL_OVERRIDE = { 'Ctrl-TAB': 'Ctrl-Alt-PgDn', 'Ctrl-Shift-TAB': 'Ctrl-Alt-PgUp' };
+
+/* Gives every reserved accelerator a working alternative.  Returns the list of
+   what moved, for the Keyboard shortcuts page. */
+UI.applyBrowserAccelerators = function (menus) {
+    const used = new Set(), items = [];
+    const walk = list => list.forEach(it => {
+        if (it.type === 'menu') return walk(it.items);
+        if (it.accel) { used.add(UI.accelId(it.accel)); items.push(it); }
+    });
+    menus.forEach(m => walk(m.items));
+
+    const moved = [];
+    items.forEach(it => {
+        const id = UI.accelId(it.accel);
+        if (!UI.browserReserves.has(id)) return;
+        const p = parseAccel(it.accel);
+        const candidates = [
+            ACCEL_OVERRIDE[id],
+            'Ctrl-Alt-' + p.key,                // the shortest chord that is free
+            'Ctrl-Alt-Shift-' + p.key,
+        ].filter(Boolean);
+        const alt = candidates.find(c => !used.has(UI.accelId(c)));
+        if (!alt) return;                       // rather no binding than a double one
+        used.add(UI.accelId(alt));
+        it.accelAlt = alt;
+        moved.push({ id: it.id, label: it.label, from: it.accel, to: alt });
+    });
+    UI.remappedAccels = moved;
+    return moved;
+};
+UI.remappedAccels = [];
 
 /* ============================================================== pop-up menus */
 
@@ -125,7 +198,10 @@ UI.popup = function (items, x, y, depth, onCommand) {
         if (item.type === 'menu') {
             row.appendChild(el('div', 'arrow', '▶'));
         } else if (item.accel) {
-            row.appendChild(el('div', 'accel', UI.accelText(item.accel)));
+            const acc = el('div', 'accel', UI.accelText(item.accelAlt || item.accel));
+            if (item.accelAlt)
+                acc.title = UI.accelText(item.accel) + ' belongs to the browser here';
+            row.appendChild(acc);
         }
 
         if (item.type === 'menu') {
@@ -209,22 +285,19 @@ UI.buildMenuBar = function (menus, onCommand) {
 /* Walks the menu tree looking for the command bound to a keyboard shortcut. */
 UI.findAccel = function (menus, ev) {
     let hit = null;
-    const key = ev.key.length === 1 ? ev.key.toUpperCase() : ev.key.toUpperCase();
+    const key = normKey(ev.key);
+    /* AltGr arrives as ctrl+alt on Windows; a chord that produced a printable
+       character is the user typing, not a shortcut. */
+    const matches = a => {
+        if (!a) return false;
+        if (a.key !== key) return false;
+        return a.ctrl === ev.ctrlKey && a.shift === ev.shiftKey && a.alt === ev.altKey;
+    };
     const walk = items => items.forEach(it => {
         if (hit) return;
         if (it.type === 'menu') return walk(it.items);
-        const a = parseAccel(it.accel);
-        if (!a) return;
-        let k = a.key;
-        if (k === 'DEL') k = 'DELETE';
-        if (k === 'INS') k = 'INSERT';
-        if (k === 'PGUP') k = 'PAGEUP';
-        if (k === 'PGDN') k = 'PAGEDOWN';
-        if (k !== key) return;
-        if (a.ctrl !== ev.ctrlKey) return;
-        if (a.shift !== ev.shiftKey) return;
-        if (a.alt !== ev.altKey) return;
-        hit = it;
+        if (!it.accel) return;
+        if (matches(parseAccel(it.accel)) || matches(parseAccel(it.accelAlt))) hit = it;
     });
     menus.forEach(m => walk(m.items));
     return hit;
@@ -355,13 +428,31 @@ class Notebook {
                 const x = el('span', 'tab-close');
                 x.innerHTML = '<svg width="9" height="9" viewBox="0 0 9 9">' +
                     '<path d="M1 1 L8 8 M8 1 L1 8" stroke="#4d4d4d" stroke-width="1.4"/></svg>';
-                x.addEventListener('click', ev => {
+                /* The close box must swallow mousedown: selecting a tab
+                   re-renders the strip, which would destroy this node before
+                   the click event ever completed. */
+                x.addEventListener('mousedown', ev => {
+                    ev.preventDefault();
                     ev.stopPropagation();
+                    x.classList.add('pressed');
+                });
+                x.addEventListener('mouseleave', () => x.classList.remove('pressed'));
+                x.addEventListener('mouseup', ev => {
+                    ev.stopPropagation();
+                    if (!x.classList.contains('pressed')) return;
+                    x.classList.remove('pressed');
                     if (this.onClose) this.onClose(p);
                 });
                 t.appendChild(x);
             }
-            t.addEventListener('mousedown', () => this.select(i));
+            t.addEventListener('mousedown', ev => {
+                if (ev.button === 1) {          /* middle click closes, as on the desktop */
+                    ev.preventDefault();
+                    if (p.closable && this.onClose) this.onClose(p);
+                    return;
+                }
+                if (ev.button === 0 || ev.button === 2) this.select(i);
+            });
             t.addEventListener('contextmenu', ev => {
                 ev.preventDefault();
                 if (this.onContext) this.onContext(p, ev);

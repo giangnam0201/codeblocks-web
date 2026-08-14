@@ -1488,6 +1488,52 @@ Features.applyEditorSettings = function () {
     localStorage.setItem('cbweb.editor', JSON.stringify(s));
 };
 
+/* Settings -> Editor -> Keyboard shortcuts: every bound command, and which
+   chords the browser took over. */
+Features.keyboardShortcutsPage = function () {
+    const page = el('div');
+    const rows = [];
+    const walk = items => items.forEach(it => {
+        if (it.type === 'menu') return walk(it.items);
+        if (!it.accel) return;
+        rows.push({
+            label: (it.label || it.id).replace(/&/g, ''),
+            accel: UI.accelText(it.accelAlt || it.accel),
+            stolen: it.accelAlt ? UI.accelText(it.accel) : null,
+        });
+    });
+    CB_MENUS.forEach(m => walk(m.items));
+    rows.sort((a, b) => a.label.localeCompare(b.label));
+
+    page.innerHTML = `
+      <div style="margin-bottom:6px">
+        Filter: <input class="cb" id="ks-filter" style="width:180px">
+      </div>
+      <div id="ks-list" style="height:250px;overflow:auto;border:1px solid #8b8b8b;background:#fff;font-family:inherit"></div>
+      <div style="margin-top:6px;color:#404040">
+        ${UI.remappedAccels.length
+            ? `${UI.remappedAccels.length} shortcuts are claimed by this browser and cannot reach
+               the page - they are shown in red with the key that works here.
+               View -&gt; Full screen gives the originals back.`
+            : 'This browser leaves every Code::Blocks shortcut to the application.'}
+      </div>`;
+
+    const list = page.querySelector('#ks-list');
+    const draw = filter => {
+        const f = filter.toLowerCase();
+        list.innerHTML = rows
+            .filter(r => !f || r.label.toLowerCase().includes(f) || r.accel.toLowerCase().includes(f))
+            .map(r => `<div style="display:flex;padding:1px 4px">
+                 <div style="flex:1;overflow:hidden;text-overflow:ellipsis">${r.label}</div>
+                 <div style="width:210px;white-space:nowrap;${r.stolen ? 'color:#a00000' : ''}">${r.accel}${
+                     r.stolen ? ` <span style="color:#808080">(was ${r.stolen})</span>` : ''}</div>
+               </div>`).join('');
+    };
+    draw('');
+    page.querySelector('#ks-filter').addEventListener('input', e => draw(e.target.value));
+    return page;
+};
+
 Features.editorSettingsDialog = function () {
     const s = App.editorSettings;
     const body = el('div');
@@ -1495,7 +1541,11 @@ Features.editorSettingsDialog = function () {
         `<label style="display:block;margin:3px 0">
            <input type="checkbox" data-k="${key}" ${s[key] ? 'checked' : ''}> ${label}</label>`;
     body.innerHTML = `
-      <div style="font-weight:bold;margin-bottom:6px">General settings</div>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <div class="cb-tab-btn" data-page="general" style="font-weight:bold">General settings</div>
+        <div class="cb-tab-btn" data-page="keys">Keyboard shortcuts</div>
+      </div>
+      <div data-page-body="general">
       <table style="border-spacing:6px">
         <tr><td>TAB size:</td><td><input class="cb" type="number" min="1" max="16" data-k="tabSize"
               value="${s.tabSize}" style="width:60px"></td></tr>
@@ -1511,7 +1561,20 @@ Features.editorSettingsDialog = function () {
         ${check('highlightCaretLine', 'Highlight line under caret')}
         ${check('autoIndent', 'Auto-indent')}
         ${check('autoCloseBrackets', 'Auto-complete brackets')}
-      </div>`;
+      </div>
+      </div>
+      <div data-page-body="keys" style="display:none"></div>`;
+
+    body.querySelector('[data-page-body="keys"]').appendChild(Features.keyboardShortcutsPage());
+    body.querySelectorAll('.cb-tab-btn').forEach(btn => {
+        btn.style.cursor = 'default';
+        btn.addEventListener('click', () => {
+            body.querySelectorAll('.cb-tab-btn').forEach(b =>
+                b.style.fontWeight = b === btn ? 'bold' : 'normal');
+            body.querySelectorAll('[data-page-body]').forEach(p =>
+                p.style.display = p.dataset.pageBody === btn.dataset.page ? '' : 'none');
+        });
+    });
 
     const apply = () => {
         body.querySelectorAll('[data-k]').forEach(inp => {
@@ -1521,7 +1584,7 @@ Features.editorSettingsDialog = function () {
         Features.applyEditorSettings();
     };
     const w = UI.window({
-        title: 'Configure editor', icon: 'assets/codeblocks.png', width: 420, body,
+        title: 'Configure editor', icon: 'assets/codeblocks.png', width: 500, body,
         buttons: [
             { label: 'OK', onClick: () => { apply(); w.remove(); } },
             { label: 'Apply', onClick: apply },
