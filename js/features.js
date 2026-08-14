@@ -1496,9 +1496,11 @@ Features.keyboardShortcutsPage = function () {
     const walk = items => items.forEach(it => {
         if (it.type === 'menu') return walk(it.items);
         if (!it.accel) return;
+        const extra = UI.EXTRA_ACCELS[it.id];
         rows.push({
             label: (it.label || it.id).replace(/&/g, ''),
-            accel: UI.accelText(it.accelAlt || it.accel),
+            accel: UI.accelText(it.accelAlt || it.accel) +
+                   (extra ? ', ' + extra.map(UI.accelText).join(', ') : ''),
             stolen: it.accelAlt ? UI.accelText(it.accel) : null,
         });
     });
@@ -1513,10 +1515,17 @@ Features.keyboardShortcutsPage = function () {
       <div style="margin-top:6px;color:#404040">
         ${UI.remappedAccels.length
             ? `${UI.remappedAccels.length} shortcuts are claimed by this browser and cannot reach
-               the page - they are shown in red with the key that works here.
-               View -&gt; Full screen gives the originals back.`
+               the page - they are shown in red with the key that works here.`
             : 'This browser leaves every Code::Blocks shortcut to the application.'}
-      </div>`;
+      </div>
+      ${UI.remappedAccels.length ? `<label style="display:block;margin-top:4px">
+        <input type="checkbox" id="ks-desktop"${localStorage.getItem('cb.desktopKeymap') ? ' checked' : ''}>
+        Use the desktop key map (runs full screen, so the browser hands every shortcut over)</label>` : ''}`;
+
+    const dk = page.querySelector('#ks-desktop');
+    if (dk) dk.addEventListener('change', () => {
+        App.desktopKeymap(dk.checked).then(ok => { dk.checked = !!ok; });
+    });
 
     const list = page.querySelector('#ks-list');
     const draw = filter => {

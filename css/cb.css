@@ -373,11 +373,14 @@ table.log-grid tr.selected td { background: #cce8ff; }
 /* --------------------------------------------------- Scintilla-ish editor  */
 
 .cb-editor { position: absolute; inset: 0; }
+/* Everything in the editor is sized in em off .CodeMirror's font-size, so
+   zooming (Ctrl+wheel) scales the text, the line spacing, the line numbers and
+   all three margins together - the way Scintilla zooms on the desktop. */
 .CodeMirror {
     height: 100%;
     font-family: var(--mono-font);
     font-size: 13px;
-    line-height: 15px;
+    line-height: 1.16;
     background: #ffffff;
     color: #000000;
 }
@@ -387,11 +390,36 @@ table.log-grid tr.selected td { background: #cce8ff; }
 }
 .CodeMirror-linenumber {
     color: #000000;
-    padding: 0 3px 0 5px;
+    padding: 0 0.25em 0 0.4em;
 }
-.cb-margin-marker { width: 16px; background: var(--face); }
-.cb-margin-change { width: 4px;  background: var(--face); }
-.CodeMirror-foldgutter { width: 16px; background: var(--face); }
+.cb-margin-marker { width: 1.25em; background: var(--face); }
+.cb-margin-change { width: 0.32em; background: var(--face); }
+.CodeMirror-foldgutter { width: 1.25em; background: var(--face); }
+
+/* Scintilla draws the fold points as SC_MARK_BOXMINUS / BOXPLUS: a small
+   bordered square with a minus or a plus in it, not a triangle. */
+.CodeMirror-foldgutter-open,
+.CodeMirror-foldgutter-folded {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; cursor: default;
+}
+.CodeMirror-foldgutter-open:after,
+.CodeMirror-foldgutter-folded:after {
+    content: '';
+    width: 0.75em; height: 0.75em;
+    border: 1px solid #808080;
+    background-color: #ffffff;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+.CodeMirror-foldgutter-open:after {
+    background-image: linear-gradient(#404040, #404040);
+    background-size: 0.45em 1px;
+}
+.CodeMirror-foldgutter-folded:after {
+    background-image: linear-gradient(#404040, #404040), linear-gradient(#404040, #404040);
+    background-size: 0.45em 1px, 1px 0.45em;
+}
 .CodeMirror-selected        { background: #c0c0c0 !important; }
 .CodeMirror-focused .CodeMirror-selected { background: #c0c0c0 !important; }
 .CodeMirror-cursor { border-left: 1px solid #000000; }
@@ -421,7 +449,7 @@ table.log-grid tr.selected td { background: #cce8ff; }
 .cb-line-breakpoint  { background: #ffa0a0; }
 .cb-line-debug       { background: #a0a0ff; }
 .cb-line-error       { background: #ff8000; }
-.cb-marker-bp        { width: 16px; height: 16px; }
+.cb-marker-bp        { width: 1.25em; height: 1.25em; }
 
 /* ----------------------------------------------------- start-here HTML page */
 
@@ -498,6 +526,28 @@ table.log-grid tr.selected td { background: #cce8ff; }
     z-index: 900;
     display: flex; align-items: center; justify-content: center;
 }
+/* corner hint (non-modal, never steals focus) */
+.cb-hint {
+    position: fixed; right: 14px; bottom: 34px; width: 340px; z-index: 940;
+    background: var(--face); border: 1px solid #4d4d4d;
+    box-shadow: 3px 3px 12px rgba(0,0,0,.35);
+}
+.cb-hint-title {
+    display: flex; align-items: center; height: 22px; padding: 0 4px 0 6px;
+    font-weight: bold;
+    background: linear-gradient(to bottom, #ffffff, #f0f0f0);
+    border-bottom: 1px solid #d5d5d5;
+}
+.cb-hint-title span:first-child { flex: 1; }
+.cb-hint-x { width: 18px; text-align: center; }
+.cb-hint-x:hover { background: #e81123; color: #fff; }
+.cb-hint-body { padding: 8px; }
+.cb-hint-body kbd {
+    font-family: inherit; border: 1px solid #8b8b8b; border-radius: 2px;
+    padding: 0 3px; background: #fff;
+}
+.cb-hint-buttons { padding: 0 8px 8px; text-align: right; }
+
 .cb-window {
     position: absolute;
     background: var(--face);

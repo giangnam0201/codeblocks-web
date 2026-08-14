@@ -121,6 +121,17 @@ App.openFile = function (name, text, project, activate) {
         ev.preventDefault();
         Features.editorContextMenu(f.cm, ev);
     });
+    /* Ctrl+wheel (and a trackpad pinch) resizes the code the way Scintilla
+       does.  Without this the browser scales the whole IDE instead, which is
+       not what anyone means by zooming in an editor. */
+    f.cm.getWrapperElement().addEventListener('wheel', ev => {
+        if (!ev.ctrlKey) return;
+        ev.preventDefault();
+        Features.zoom(ev.deltaY < 0 ? 1 : -1);
+        UI.setStatus(0, App.zoomLevel === 0 ? 'Zoom reset'
+            : `Zoom ${App.zoomLevel > 0 ? 'in' : 'out'}: ${13 + App.zoomLevel}px ` +
+              '(Ctrl+wheel, or Edit -> Special commands -> Zoom)');
+    }, { passive: false });
     // BrowseTracker keeps the jump history
     f.cm.on('focus', () => {
         App.browseHistory = App.browseHistory || [];
@@ -134,6 +145,8 @@ App.openFile = function (name, text, project, activate) {
         if (ev && (ev.ctrlKey || ev.shiftKey)) Features.toggleBookmark(line + 1);
         else App.toggleBreakpointAt(f, line + 1);
     });
+
+    if (App.zoomLevel) f.cm.getWrapperElement().style.fontSize = (13 + App.zoomLevel) + 'px';
 
     if (activate !== false) App.nbEditors.select(f.key);
     setTimeout(() => f.cm.refresh(), 0);
@@ -221,7 +234,7 @@ App.refreshBreakpoints = function () {
             const img = document.createElement('img');
             img.src = src;
             img.title = title;
-            img.style.cssText = 'width:12px;height:12px;margin-left:2px;';
+            img.style.cssText = 'width:0.95em;height:0.95em;margin-left:0.15em;vertical-align:middle;';
             return img;
         };
         (f.bookmarks || new Set()).forEach(line =>
@@ -1023,25 +1036,193 @@ UI.onLayout = App.refreshEditors;
 
 const Dialogs = {};
 
+/* The desktop About box: the splash bitmap, the build stamp and a notebook
+   with Description / Information / Plugins / Thanks to... / License.  Same
+   pages, same texts (src/src/dlgabout.cpp), with the numbers this edition can
+   actually measure. */
 Dialogs.about = function () {
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+    /* dlgabout.cpp lays the Information and Plugins pages out by padding the
+       names to a common width - keep that. */
+    const format = items => {
+        const w = items.reduce((m, i) => Math.max(m, i[0].length), 0);
+        return items.map(i => i[0] + ' '.repeat(w - i[0].length) + ' : ' + i[1]).join('\n');
+    };
+
+    const description =
+        'Welcome to Code::Blocks 25.03!\n' +
+        'Code::Blocks is a full-featured IDE (Integrated Development Environment) ' +
+        'aiming to make the individual developer (and the development team) work in ' +
+        'a nice programming environment offering everything he/they would ever need ' +
+        'from a program of that kind.\n' +
+        'Its pluggable architecture allows you, the developer, to add any kind of ' +
+        'functionality to the core program, through the use of plugins...\n';
+
+    const dpr = window.devicePixelRatio || 1;
+    const info = [
+        ['Name', 'Code::Blocks'],
+        ['Version', '25.03-r13644'],
+        ['SDK Version', '2.25.0'],
+        ['Editor Version', 'CodeMirror ' + (window.CodeMirror ? CodeMirror.version : '5')],
+        ['Compiler', 'clang 8.0.1 - WebAssembly, libc++ (runs in this page)'],
+        ['Author', 'The Code::Blocks Team'],
+        ['E-mail', 'info@codeblocks.org'],
+        ['Website', 'https://www.codeblocks.org'],
+        ['Web edition', 'https://github.com/giangnam0201/codeblocks-web'],
+        ['Web edition by', 'https://github.com/giangnam0201'],
+        ['Build', document.lastModified],
+        ['Browser', navigator.userAgent],
+        ['OS', (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform],
+        ['Scaling factor', dpr.toFixed(6)],
+        ['Display PPI', Math.round(96 * dpr) + 'x' + Math.round(96 * dpr)],
+        ['Display count', '1'],
+        ['Display 0', `XY=[${screen.availLeft || 0},${screen.availTop || 0}]; ` +
+                      `Size=[${screen.width},${screen.height}]; Primary`],
+        ['Storage', navigator.storage ? 'Cache API (the toolchain is kept offline)' : 'none'],
+        ['Cores', navigator.hardwareConcurrency || 'unknown'],
+    ];
+
+    const thanks =
+`Developers:
+--------------
+Yiannis Mandravellos: Developer - Project leader
+Thomas Denk         : Developer
+Lieven de Cock      : Developer
+"tiwag"             : Developer
+Martin Halle        : Developer
+Biplab Modak        : Developer
+Jens Lody           : Developer
+Yuchen Deng         : Developer
+Teodor Petrov       : Developer
+Daniel Anselmi      : Developer
+Yuanhui Zhang       : Developer
+Damien Moore        : Developer
+Micah Ng            : Developer
+BlueHazzard         : Developer
+Miguel Gimenez      : Developer
+Ricardo Garcia      : All-hands person
+Paul A. Jimenez     : Help and AStyle plugins
+Thomas Lorblanches  : CodeStat and Profiler plugins
+Bartlomiej Swiecki  : wxSmith RAD plugin
+Jerome Antoine      : ThreadSearch plugin
+Pecan Heber         : Keybinder, BrowseTracker, DragScroll
+                      CodeSnippets, clangd-client plugins
+Arto Jonsson        : CodeSnippets plugin (passed on to Pecan)
+Darius Markauskas   : Fortran support
+Mario Cupelli       : Compiler support for embedded systems
+                      User's manual
+Jonas Zinn          : Misc. wxSmith AddOns and plugins
+Mirai Computing     : cbp2make tool
+Anders F Bjoerklund : wxMac compatibility
+
+Contributors (in no special order):
+-----------------------------------
+Daniel Orb          : RPM spec file and packages
+byo,elvstone, me22  : Conversion to Unicode
+pasgui              : Providing Ubuntu nightly packages
+Hakki Dogusan       : DigitalMars compiler support
+ybx                 : OpenWatcom compiler support
+Tim Baker           : Patches for the direct-compile-mode
+                      dependencies generation system
+David Perfors       : Unicode tester and future documentation writer
+Sylvain Prat        : Initial MSVC workspace and project importers
+Chris Raschko       : Design of the 3D logo for Code::Blocks
+J.A. Ortega         : 3D Icon based on the above
+Alexandr Efremo     : Providing OpenSuSe packages
+Huki                : Misc. Code-Completion improvements
+stahta01            : Misc. patches for several enhancements
+Gerard Durand       : Translation infrastructure, documentation writer
+
+All contributors that provided patches.
+The wxWidgets project (https://www.wxwidgets.org).
+wxScintilla (https://sourceforge.net/projects/wxscintilla).
+TinyXML parser (https://www.grinninglizard.com/tinyxml).
+Squirrel scripting language (http://www.squirrel-lang.org).
+The GNU Software Foundation (https://www.gnu.org).
+Last, but not least, the open-source community.
+
+Web edition:
+--------------
+giangnam0201        : the browser port - https://github.com/giangnam0201
+clang / LLVM        : the C++ compiler, built to WebAssembly
+binji/wasm-clang    : the WebAssembly toolchain this edition runs on
+CodeMirror          : the editor component`;
+
+    const license =
+        'This program is licensed under the terms\n' +
+        'of the GNU General Public License version 3\n\n' +
+        'Available online under:\nhttp://www.gnu.org/licenses/gpl-3.0.html\n\n' +
+        'The web edition keeps the same license, and its source is at\n' +
+        'https://github.com/giangnam0201/codeblocks-web';
+
     const body = document.createElement('div');
+    /* single quotes: this string is interpolated into a style="" attribute */
+    const pageStyle = 'height:200px;overflow:auto;border:1px solid #8b8b8b;background:#fff;' +
+                      "padding:6px;white-space:pre-wrap;font-family:Consolas,'Courier New',monospace;" +
+                      'font-size:12px';
     body.innerHTML = `
       <div style="text-align:center">
-        <img src="assets/splash_2503.png" style="max-width:100%">
+        <img src="assets/splash_2503.png" style="max-width:100%;max-height:190px">
       </div>
-      <div style="padding:10px 4px;line-height:1.5">
-        <b>Code::Blocks</b> 25.03 &mdash; web edition<br>
-        The open source, cross platform, free C++ IDE.<br><br>
-        This page reproduces the Code::Blocks user interface in the browser and
-        compiles and runs C++ entirely client side.<br><br>
-        &copy; 2004 - 2025, The Code::Blocks Team.
-      </div>`;
+      <div style="text-align:right;padding:2px 2px 6px">Build: ${esc(document.lastModified)}</div>
+      <hr style="border:none;border-top:1px solid #d5d5d5;margin:0 0 6px">
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <div class="cb-tab-btn" data-p="desc" style="font-weight:bold">Description</div>
+        <div class="cb-tab-btn" data-p="info">Information</div>
+        <div class="cb-tab-btn" data-p="plug">Plugins</div>
+        <div class="cb-tab-btn" data-p="thx">Thanks to...</div>
+        <div class="cb-tab-btn" data-p="lic">License</div>
+      </div>
+      <div data-b="desc" style="${pageStyle};white-space:normal;font-family:inherit;font-size:inherit">
+        ${esc(description).replace(/\n/g, '<br>')}
+        <div style="margin-top:10px">
+          This edition runs the whole IDE in the browser: the editor, the project
+          manager and a real clang 8.0.1 compiled to WebAssembly, so your code is
+          compiled and run on your own machine with nothing sent to a server.
+        </div>
+        <div style="margin-top:10px">
+          Web edition by
+          <a href="https://github.com/giangnam0201" target="_blank" rel="noopener">github.com/giangnam0201</a>
+          &mdash; source at
+          <a href="https://github.com/giangnam0201/codeblocks-web" target="_blank" rel="noopener">giangnam0201/codeblocks-web</a>
+        </div>
+        <div style="margin-top:10px">&copy; 2004 - 2025, The Code::Blocks Team.</div>
+      </div>
+      <div data-b="info" style="${pageStyle};display:none">${esc(format(info))}</div>
+      <div data-b="plug" style="${pageStyle};display:none">Loading...</div>
+      <div data-b="thx"  style="${pageStyle};display:none">${esc(thanks)}</div>
+      <div data-b="lic"  style="${pageStyle};display:none">${esc(license)}</div>`;
+
+    body.querySelectorAll('.cb-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            body.querySelectorAll('.cb-tab-btn').forEach(b =>
+                b.style.fontWeight = b === btn ? 'bold' : 'normal');
+            body.querySelectorAll('[data-b]').forEach(p =>
+                p.style.display = p.dataset.b === btn.dataset.p ? '' : 'none');
+        });
+    });
+
+    /* Plugins page: the active plugins and their versions, like the real one. */
+    (async () => {
+        let list = [];
+        try { list = await (await fetch('assets/plugins.json')).json(); } catch (e) { /* offline */ }
+        const active = list
+            .filter(p => App.pluginState[p.name] !== false)
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+            .map(p => [p.name, p.version]);
+        const box = body.querySelector('[data-b="plug"]');
+        box.textContent = active.length ? format(active) : 'There are no active plugins\n';
+    })();
+
     const w = UI.window({
-        title: 'About Code::Blocks', icon: 'assets/codeblocks.png',
-        width: 520, minimizable: false, body,
+        title: 'About...', icon: 'assets/codeblocks.png',
+        width: 560, minimizable: false, body,
         buttons: [{ label: 'OK', onClick: () => w.remove() }],
     });
     w.style.height = 'auto';
+    w.style.maxHeight = '94vh';
+    w.style.top = '3vh';
 };
 
 /* Tip of the Day, reading the tips Code::Blocks itself ships in src/tips.txt. */
@@ -1487,6 +1668,79 @@ App.startToolchain = function () {
     void t0;
 };
 
+/* ============================================ shortcuts the browser takes
+
+   Ctrl+N, Ctrl+Shift+N and Ctrl+W are handled inside the browser: the keydown
+   is never dispatched to the page, so there is nothing to intercept and no way
+   to answer the key directly.  What we can do is notice it happened - the
+   modifier goes down here and then the window loses focus because a new
+   browser window came up - and tell the user which key does work, with one
+   click to switch the whole key map back to the desktop one. */
+App.desktopKeymap = function (on) {
+    if (on) {
+        const root = document.documentElement;
+        const p = root.requestFullscreen ? root.requestFullscreen() : Promise.reject();
+        return p.then(() => {
+            localStorage.setItem('cb.desktopKeymap', '1');
+            return true;
+        }).catch(() => {
+            UI.messageBox(
+                'This browser would not go full screen, so the browser keeps its own shortcuts.\n' +
+                'Use the keys listed under Settings -> Editor -> Keyboard shortcuts instead.',
+                'Desktop shortcuts', ['OK'], '⚠️');
+            return false;
+        });
+    }
+    localStorage.removeItem('cb.desktopKeymap');
+    if (document.fullscreenElement) document.exitFullscreen();
+    return Promise.resolve(false);
+};
+
+App.watchStolenShortcuts = function () {
+    if (!UI.remappedAccels.length) return;      // this browser takes nothing
+    let ctrlAt = 0, sawChord = false, shown = false;
+
+    document.addEventListener('keydown', ev => {
+        if (ev.key === 'Control') { ctrlAt = Date.now(); sawChord = false; }
+        else if (ev.ctrlKey) sawChord = true;   // the chord did reach us, all good
+    }, true);
+    document.addEventListener('keyup', ev => { if (ev.key === 'Control') ctrlAt = 0; }, true);
+
+    window.addEventListener('blur', () => {
+        /* Ctrl went down, no chord arrived, and now focus is gone: the browser
+           opened something of its own with the key the user meant for us. */
+        if (shown || !ctrlAt || sawChord) return;
+        if (Date.now() - ctrlAt > 4000) return;
+        if (document.fullscreenElement) return;
+        if (localStorage.getItem('cb.hideKeymapHint')) return;
+        shown = true;
+        setTimeout(App.hintStolenShortcut, 400);   // wait until we have focus back
+    });
+};
+
+App.hintStolenShortcut = function () {
+    const row = id => {
+        const m = UI.remappedAccels.find(x => x.id === id);
+        return m ? `<tr><td style="padding-right:10px">${m.label.replace(/&/g, '')}</td>
+                        <td><kbd>${UI.accelText(m.to)}</kbd></td></tr>` : '';
+    };
+    UI.hint({
+        title: 'The browser took that shortcut',
+        html:
+            '<div style="margin-bottom:6px">Your browser acts on <kbd>Ctrl+Shift+N</kbd>, ' +
+            '<kbd>Ctrl+N</kbd>, <kbd>Ctrl+W</kbd> and <kbd>Ctrl+R</kbd> itself, so they never ' +
+            'reach Code::Blocks. Here they are:</div>' +
+            '<table>' + row('idFileNewEmpty') + row('idFileClose') + row('idSearchReplace') + '</table>' +
+            '<div style="margin-top:6px">Or take the desktop keys back - the IDE goes full ' +
+            'screen and every shortcut works as it does on the PC.</div>',
+        seconds: 0,
+        buttons: [
+            { label: 'Use desktop shortcuts', onClick: () => App.desktopKeymap(true) },
+            { label: "Don't show again", onClick: () => localStorage.setItem('cb.hideKeymapHint', '1') },
+        ],
+    });
+};
+
 App.updateDebugUI = function () {
     const on = Debugger.active;
     UI.enableTool('idDebuggerMenuStop', on);
@@ -1522,13 +1776,15 @@ function init() {
         if (document.fullscreenElement) {
             kb.lock().then(() => {
                 App.keysLocked = true;
-                UI.setStatus(0, 'Full screen - the desktop shortcuts are all active');
+                UI.setStatus(0, 'Desktop shortcuts active - Ctrl+Shift+N, Ctrl+W and Ctrl+R belong to the IDE again');
             }).catch(() => {});
         } else if (App.keysLocked) {
             App.keysLocked = false;
             kb.unlock();
         }
     });
+
+    App.watchStolenShortcuts();
 
 
     /* toolbars */
@@ -1706,6 +1962,17 @@ function init() {
     UI.enableTool('idCompilerMenuKillProcess', false);
 
     window.addEventListener('resize', App.refreshEditors);
+    /* Full screen needs a user gesture, so a remembered desktop key map is
+       re-armed on the first click rather than at load. */
+    if (localStorage.getItem('cb.desktopKeymap') && document.documentElement.requestFullscreen) {
+        UI.setStatus(0, 'Click anywhere to restore the desktop shortcuts');
+        const arm = () => {
+            document.removeEventListener('mousedown', arm, true);
+            App.desktopKeymap(true);
+        };
+        document.addEventListener('mousedown', arm, true);
+    }
+
     /* Ctrl+W belongs to the browser and closes the tab, so unsaved work needs
        the one guard a page is allowed: the "Leave site?" prompt. */
     window.addEventListener('beforeunload', ev => {

@@ -108,6 +108,11 @@ UI.browserReserves = (function () {
 /* Ctrl+Alt+Tab belongs to Windows, so tab switching needs its own escape. */
 const ACCEL_OVERRIDE = { 'Ctrl-TAB': 'Ctrl-Alt-PgDn', 'Ctrl-Shift-TAB': 'Ctrl-Alt-PgUp' };
 
+/* Chords the command also answers to.  Ctrl+N is what people press for a new
+   file even though the desktop IDE binds Ctrl+Shift+N, and both of them reach
+   the page once the desktop key map is on. */
+UI.EXTRA_ACCELS = { idFileNewEmpty: ['Ctrl-N'] };
+
 /* Gives every reserved accelerator a working alternative.  Returns the list of
    what moved, for the Keyboard shortcuts page. */
 UI.applyBrowserAccelerators = function (menus) {
@@ -297,7 +302,9 @@ UI.findAccel = function (menus, ev) {
         if (hit) return;
         if (it.type === 'menu') return walk(it.items);
         if (!it.accel) return;
-        if (matches(parseAccel(it.accel)) || matches(parseAccel(it.accelAlt))) hit = it;
+        if (matches(parseAccel(it.accel)) || matches(parseAccel(it.accelAlt))) { hit = it; return; }
+        const extra = UI.EXTRA_ACCELS[it.id];
+        if (extra && extra.some(a => matches(parseAccel(a)))) hit = it;
     });
     menus.forEach(m => walk(m.items));
     return hit;
@@ -731,6 +738,40 @@ UI.initPaneButtons = function () {
                 '<path d="M2 2 L9 9 M9 2 L2 9" stroke="#000" stroke-width="1.4"/></svg>';
         }
     });
+};
+
+/* ===================================================================== hints
+
+   A non-modal panel in the corner, for things the user needs to know but must
+   not be interrupted by - it never takes the keyboard away from the editor. */
+UI.hint = function (opts) {
+    const old = document.querySelector('.cb-hint');
+    if (old) old.remove();
+    const box = el('div', 'cb-hint');
+    const title = el('div', 'cb-hint-title');
+    title.appendChild(el('span', '', opts.title || 'Code::Blocks'));
+    const close = el('span', 'cb-hint-x', '✕');
+    close.addEventListener('click', () => box.remove());
+    title.appendChild(close);
+    box.appendChild(title);
+
+    const body = el('div', 'cb-hint-body');
+    body.innerHTML = opts.html || '';
+    box.appendChild(body);
+
+    if (opts.buttons && opts.buttons.length) {
+        const row = el('div', 'cb-hint-buttons');
+        opts.buttons.forEach(b => {
+            const btn = el('button', 'cb', b.label);
+            btn.addEventListener('click', () => { box.remove(); b.onClick(); });
+            row.appendChild(btn);
+        });
+        box.appendChild(row);
+    } else if (opts.seconds !== 0) {
+        setTimeout(() => box.remove(), (opts.seconds || 8) * 1000);
+    }
+    document.body.appendChild(box);
+    return box;
 };
 
 /* ================================================================ statusbar */
