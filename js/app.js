@@ -837,9 +837,19 @@ App.command = async function (id, extra) {
         case 'idFileSaveAll': case 'idFileSaveProject': case 'idFileSaveWorkspace':
             await App.saveAll();
             return;
-        case 'idFileClose': if (f) await App.closeFile(f); return;
+        case 'idFileClose': {
+            if (f) { await App.closeFile(f); return; }
+            // the page in front may be a statement or the start page
+            const page = App.nbEditors.activePage();
+            if (page) App.nbEditors.removePage(page.key);
+            return;
+        }
         case 'idFileCloseAll':
             for (const x of App.files.slice()) if (!await App.closeFile(x)) break;
+            // and everything that was never a file
+            App.nbEditors.pages.slice().forEach(p => {
+                if (!App.files.some(x => x.key === p.key)) App.nbEditors.removePage(p.key);
+            });
             return;
         case 'idFileCloseProject':
             App.projects = [];
@@ -2148,21 +2158,6 @@ App.installThemeButton = function () {
     bar.appendChild(b);
 };
 
-/* Push the file in front to VNOI, without leaving the IDE. */
-App.installVnoiButton = function () {
-    const bar = document.getElementById('tb-main');
-    // note: VnoiUI is a top-level const, so it is not a window property
-    if (!bar || typeof VnoiUI === 'undefined' || bar.querySelector('.tb-vnoi')) return;
-    const b = el('div', 'tb-btn tb-vnoi');
-    b.title = 'Submit the current file to VNOI';
-    b.innerHTML =
-        '<svg viewBox="0 0 16 16" width="16" height="16">' +
-        '<path d="M8 1.5l5.5 5.5H10v5H6v-5H2.5z" fill="#1f8a3d"/>' +
-        '<rect x="3" y="13" width="10" height="1.6" fill="#1f8a3d"/></svg>';
-    b.addEventListener('click', () => VnoiUI.submitCurrent());
-    bar.appendChild(b);
-};
-
 App.updateDebugUI = function () {
     const on = Debugger.active;
     UI.enableTool('idDebuggerMenuStop', on);
@@ -2223,10 +2218,10 @@ function init() {
     document.querySelector('#tb-main .tb-btn[data-id="idToolNew"]')
         .addEventListener('click', () => App.command('idFileNewEmpty'));
 
-    /* the theme switch and the VNOI submit button live at the end of the
-       main toolbar, where they are always in reach */
+    /* the theme switch lives at the end of the main toolbar.  Submitting is
+       not here: it belongs to the solution file, which carries its own button
+       for the problem it was opened from. */
     App.installThemeButton();
-    App.installVnoiButton();
     let savedTheme = null;
     try { savedTheme = localStorage.getItem(App.THEME_KEY); } catch (e) { /* private mode */ }
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -2275,7 +2270,10 @@ function init() {
     App.nbEditors.onClose = async page => {
         if (page.key === '#start') { App.nbEditors.removePage('#start'); return; }
         const f = App.files.find(x => x.key === page.key);
-        if (f) await App.closeFile(f);
+        if (f) { await App.closeFile(f); return; }
+        /* Pages that are not source files - a VNOI problem statement, for one -
+           still have to close when their X is pressed. */
+        App.nbEditors.removePage(page.key);
     };
     App.nbEditors.onChange = () => {
         App.updateStatusBar();

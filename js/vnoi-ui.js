@@ -282,7 +282,6 @@ VnoiUI.openProblem = function (code) {
             (p.points ? ' &middot; ' + escapeHtml(p.points) + ' points' : '') + '</div>';
         const bar = vel('div', 'vnoi-row');
         bar.appendChild(vbutton('Write a solution', () => VnoiUI.solutionFile(p)));
-        bar.appendChild(vbutton('Submit current file', () => VnoiUI.submitCurrent(p.code)));
         bar.appendChild(vbutton('My submissions', () => VnoiUI.loadSubmissions({ problem: p.code })));
         head.appendChild(bar);
         host.appendChild(head);
@@ -302,15 +301,49 @@ VnoiUI.openProblem = function (code) {
     });
 };
 
-/* A source file to write the answer in, named after the problem. */
+/* A source file to write the answer in, named after the problem.  The file
+   remembers which problem it belongs to, and that tag - not its name, not
+   whatever tab happens to be in front - is what the Submit button sends to. */
 VnoiUI.solutionFile = function (p) {
     const name = p.code + '.cpp';
-    const existing = App.files.find(f => f.name === name);
-    if (existing) { App.nbEditors.select(existing.key); return existing; }
-    const f = App.openFile(name, VnoiUI.template(p));
-    if (App.activeProject) { f.project = App.activeProject; App.activeProject.files.push(name); }
+    let f = App.files.find(x => x.name === name);
+    if (!f) {
+        f = App.openFile(name, VnoiUI.template(p));
+        if (App.activeProject) { f.project = App.activeProject; App.activeProject.files.push(name); }
+    }
+    f.vnoiProblem = p.code;
+    f.vnoiTitle = p.title;
+    VnoiUI.attachSubmitButton(f);
+    App.nbEditors.select(f.key);
     App.refreshTrees();
     return f;
+};
+
+/* The button lives inside the editor page, in its top right corner, so it is
+   there for exactly the files opened from a problem and nowhere else. */
+VnoiUI.attachSubmitButton = function (f) {
+    if (!f || !f.host || !f.vnoiProblem) return null;
+    let btn = f.host.querySelector('.vnoi-submit-fab');
+    if (!btn) {
+        btn = vel('button', 'cb vnoi-submit-fab');
+        btn.addEventListener('click', () => VnoiUI.submitSolution(f));
+        f.host.appendChild(btn);
+    }
+    btn.textContent = 'Submit to ' + f.vnoiProblem;
+    btn.title = 'Send this file to ' + (f.vnoiTitle || f.vnoiProblem) + ' on VNOI';
+    return btn;
+};
+
+/* A reload loses the tag but not the header the template wrote, so the button
+   comes back on the files that earned it. */
+VnoiUI.restoreSubmitButtons = function () {
+    App.files.forEach(f => {
+        if (!f.vnoiProblem) {
+            const m = /oj\.vnoi\.info\/problem\/([A-Za-z0-9_\-]+)/.exec(f.text().slice(0, 400));
+            if (m) f.vnoiProblem = m[1];
+        }
+        if (f.vnoiProblem) VnoiUI.attachSubmitButton(f);
+    });
 };
 
 VnoiUI.template = function (p) {
@@ -323,49 +356,127 @@ VnoiUI.template = function (p) {
 
 /* ============================================================== submitting */
 
-/* Submits whatever source file is in front, to the problem given (or the one
-   whose statement is open, or the one the file is named after). */
-VnoiUI.submitCurrent = function (code) {
+/* Submits a solution file to the problem it was opened for.  Nothing asks
+   which problem: the file knows, which is the whole point of the button. */
+VnoiUI.submitSolution = function (f) {
     return VnoiUI.guard('Submitting', async () => {
         if (!VNOI.loggedIn()) { VnoiUI.loginDialog(); return null; }
-        const f = App.activeSourceFile();
-        if (!f) { VnoiUI.note('Open the source file you want to submit first.', true); return null; }
-        const problem = code || (VNOI.current && VNOI.current.code) || f.name.replace(/\.[^.]*$/, '');
+        if (!f || !f.vnoiProblem) { VnoiUI.note('This file is not tied to a VNOI problem.', true); return null; }
+        const problem = f.vnoiProblem;
 
         const form = await VNOI.submitForm(problem);
         const lang = VNOI.languageFor(f.name, form.langs);
         if (!lang) { VnoiUI.note('This problem accepts no language this file could use.', true); return null; }
 
-        const ok = await UI.messageBox(
-            `Submit ${f.name} to "${problem}" as ${lang.name}?`,
-            'VNOI', ['Yes', 'No'], '❓');
-        if (ok !== 'Yes') return null;
+        const btn = f.host && f.host.querySelector('.vnoi-submit-fab');
+        if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
 
-        App.selectLogTab('vnoi');
-        App.logAppend('vnoi', `\nSubmitting ${f.name} to ${problem} as ${lang.name}...\n`);
-        const id = await VNOI.submit(problem, f.text(), lang.id);
-        App.logAppend('vnoi', `Submission #${id} accepted by the judge. Grading:\n`);
-        UI.setStatus(0, `VNOI: submission #${id} queued`);
+        const win = VnoiUI.resultWindow(problem, f.name, lang.name);
+        try {
+            const id = await VNOI.submit(problem, f.text(), lang.id);
+            win.setId(id);
+            UI.setStatus(0, 'VNOI: submission #' + id + ' queued');
+            App.logAppend('vnoi',
+                `Submitted ${f.name} to ${problem} as ${lang.name} - submission #${id}.\n`);
 
-        await VNOI.watch(id, ev => {
-            if (ev.type === 'cases') {
-                ev.cases.forEach(c => App.logAppend('vnoi',
-                    `  ${c.label}  ${c.status}   time ${c.time}  memory ${c.memory}  score ${c.score}\n`,
-                    /AC/i.test(c.status) ? '' : 'err'));
-            } else if (ev.type === 'compile') {
-                App.logAppend('vnoi', 'Compilation error:\n' + ev.text + '\n', 'err');
-                UI.setStatus(0, 'VNOI: compilation error');
-            } else if (ev.type === 'done') {
-                const good = /^(\d+(?:[.,]\d+)?)\s*\/\s*\1\b/.test(ev.score);
-                App.logAppend('vnoi', `Final score: ${ev.score}\n`, good ? '' : 'err');
-                UI.setStatus(0, 'VNOI: ' + (ev.score || 'graded'));
-            } else if (ev.type === 'timeout') {
-                App.logAppend('vnoi', 'Gave up waiting for the judge.\n', 'err');
-            }
-        });
-        VnoiUI.loadSubmissions({ problem });
-        return id;
+            await VNOI.watch(id, ev => {
+                if (ev.type === 'cases') win.addCases(ev.cases);
+                else if (ev.type === 'compile') win.compileError(ev.text);
+                else if (ev.type === 'done') win.finish(ev.score);
+                else if (ev.type === 'timeout') win.fail('The judge is taking too long - open the submission on VNOI.');
+            });
+            VnoiUI.loadSubmissions({ problem });
+            return id;
+        } catch (e) {
+            win.fail(e.message);
+            throw e;
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Submit to ' + problem; }
+        }
     });
+};
+
+/* The verdict gets its own window rather than a line in a log: it is the one
+   thing the user is waiting for, and it fills in test by test as the judge
+   works through them. */
+VnoiUI.resultWindow = function (problem, fileName, langName) {
+    const body = document.createElement('div');
+    body.className = 'vnoi-result';
+    body.innerHTML =
+        '<div class="vnoi-result-head">' +
+          '<div><b class="vnoi-result-problem"></b> <span class="vnoi-dim vnoi-result-sub"></span></div>' +
+          '<div class="vnoi-dim vnoi-result-meta"></div>' +
+        '</div>' +
+        '<div class="vnoi-result-status">Sending to the judge...</div>' +
+        '<div class="vnoi-result-scroll">' +
+          '<table class="log-grid vnoi-result-table"><thead><tr>' +
+            '<th style="width:90px">Test</th><th style="width:160px">Verdict</th>' +
+            '<th style="width:80px">Time</th><th style="width:90px">Memory</th><th>Score</th>' +
+          '</tr></thead><tbody></tbody></table>' +
+        '</div>';
+    body.querySelector('.vnoi-result-problem').textContent = problem;
+    body.querySelector('.vnoi-result-meta').textContent = fileName + '  ·  ' + langName;
+
+    const w = UI.window({
+        title: 'VNOI - judging ' + problem, icon: 'assets/codeblocks.png',
+        width: 580, height: 400, body,
+        buttons: [{ label: 'Close', onClick: () => w.remove() }],
+    });
+
+    const tbody = body.querySelector('tbody');
+    const status = body.querySelector('.vnoi-result-status');
+    const scroll = body.querySelector('.vnoi-result-scroll');
+
+    const setTitle = text => {
+        const t = w.querySelector('.title .t-text');
+        if (t) t.textContent = text;
+    };
+
+    return {
+        window: w,
+        setId(sid) {
+            body.querySelector('.vnoi-result-sub').innerHTML =
+                'submission #' + sid + ' &middot; ' +
+                '<a href="' + VNOI.BASE + '/submission/' + sid + '" target="_blank" rel="noopener">open on VNOI</a>';
+            status.textContent = 'Queued...';
+        },
+        addCases(cases) {
+            cases.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.className = /AC|đúng/i.test(c.status) ? '' : 'error';
+                [c.label, c.status, c.time, c.memory, c.score].forEach(v => {
+                    const td = document.createElement('td');
+                    td.textContent = v || '';
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            status.textContent = 'Judging... ' + tbody.children.length + ' test(s) done';
+            scroll.scrollTop = scroll.scrollHeight;
+        },
+        compileError(text) {
+            status.textContent = 'Compilation error';
+            status.className = 'vnoi-result-status vnoi-wa';
+            const pre = document.createElement('pre');
+            pre.className = 'vnoi-result-ce';
+            pre.textContent = text;
+            scroll.appendChild(pre);
+            setTitle('VNOI - ' + problem + ' - compilation error');
+            UI.setStatus(0, 'VNOI: compilation error');
+        },
+        finish(score) {
+            const full = /^(\d+(?:[.,]\d+)?)\s*\/\s*\1\b/.test(score || '');
+            status.textContent = 'Final score: ' + (score || 'graded');
+            status.className = 'vnoi-result-status ' + (full ? 'vnoi-ac' : 'vnoi-wa');
+            setTitle('VNOI - ' + problem + ' - ' + (score || 'graded'));
+            UI.setStatus(0, 'VNOI: ' + (score || 'graded'));
+        },
+        fail(message) {
+            status.textContent = message;
+            status.className = 'vnoi-result-status vnoi-wa';
+            setTitle('VNOI - ' + problem + ' - failed');
+        },
+    };
 };
 
 /* =========================================================== contests tab */
@@ -651,4 +762,6 @@ VnoiUI.install = function (nb) {
         // confirm the stored session is still good
         VNOI.whoami().then(() => VnoiUI.drawHeader()).catch(() => {});
     }
+    // files restored from the last session get their Submit button back
+    setTimeout(() => VnoiUI.restoreSubmitButtons(), 300);
 };

@@ -974,3 +974,30 @@ body.cb-dark .vnoi-statement-body table th { border-color: #3f3f46; }
 body.cb-dark .vnoi-item.vnoi-current { background: #16301c; border-left-color: #4ec94e; }
 body.cb-dark .vnoi-item.vnoi-current .vnoi-item-title { color: #7fe08a; }
 body.cb-dark .vnoi-item.vnoi-current:hover { background: #1c3d23; }
+
+/* the Submit button that belongs to a solution file, in the editor's corner */
+button.cb.vnoi-submit-fab {
+    position: absolute; top: 8px; right: 18px; z-index: 6;
+    padding: 4px 12px;
+    background: linear-gradient(to bottom, #4ca85f, #2f8244);
+    border: 1px solid #246635; color: #ffffff; font-weight: bold;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}
+button.cb.vnoi-submit-fab:hover { background: linear-gradient(to bottom, #59bd6d, #37974f); }
+button.cb.vnoi-submit-fab:disabled { background: #9a9a9a; border-color: #7d7d7d; }
+
+/* the judging window */
+.vnoi-result { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.vnoi-result-head { flex: none; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.vnoi-result-status {
+    flex: none; padding: 5px 10px; font-weight: bold;
+    border-bottom: 1px solid var(--border); background: var(--face);
+}
+.vnoi-result-scroll { flex: 1; min-height: 0; overflow: auto; background: #ffffff; }
+body.cb-dark .vnoi-result-scroll { background: #1e1e1e; }
+.vnoi-result-table { width: 100%; }
+.vnoi-result-ce {
+    margin: 0; padding: 8px 10px; white-space: pre-wrap;
+    font-family: var(--mono-font); color: #a00000;
+}
+body.cb-dark .vnoi-result-ce { color: #f48771; }
