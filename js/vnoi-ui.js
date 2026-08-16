@@ -226,24 +226,38 @@ VnoiUI.buildProblems = function (host) {
 
 VnoiUI.loadProblems = function (search) {
     return VnoiUI.guard('Loading problems', async () => {
-        const r = await VNOI.problems({ search });
-        VnoiUI.state.problems = r.list;
+        /* Public problems first, then each organization's own set - a school
+           keeps its problems behind its organization, and those are the ones
+           its students are actually given. */
+        const groups = await VNOI.allProblems(search);
+        VnoiUI.state.problems = groups;
         const list = document.getElementById('vnoi-problem-list');
         if (!list) return;
         list.innerHTML = '';
-        if (!r.list.length) { list.appendChild(vel('div', 'vnoi-dim', 'No problems found.')); return; }
-        r.list.forEach(p => {
-            const row = vel('div', 'vnoi-item');
-            row.innerHTML =
-                `<div class="vnoi-item-title">${p.solved ? '<span class="vnoi-ac">&#10003;</span> ' : ''}` +
-                `${escapeHtml(p.name || p.code)}</div>` +
-                `<div class="vnoi-dim">${escapeHtml(p.code)} &middot; ${escapeHtml(p.points)} pts` +
-                `${p.acRate ? ' &middot; ' + escapeHtml(p.acRate) + ' AC' : ''}</div>`;
-            row.addEventListener('click', () => VnoiUI.openProblem(p.code));
-            list.appendChild(row);
+        let total = 0;
+        groups.forEach(g => {
+            if (!g.list.length) return;
+            total += g.list.length;
+            const label = g.contest ? g.title + '  (contest)'
+                        : g.org ? g.title + '  (private)' : g.title;
+            const head = vel('div', 'vnoi-section' + (g.contest ? ' vnoi-current' : ''), label);
+            list.appendChild(head);
+            g.list.forEach(p => {
+                const row = vel('div', 'vnoi-item');
+                row.innerHTML =
+                    `<div class="vnoi-item-title">${p.solved ? '<span class="vnoi-ac">&#10003;</span> ' : ''}` +
+                    `${escapeHtml(p.name || p.code)}</div>` +
+                    `<div class="vnoi-dim">${escapeHtml(p.code)} &middot; ${escapeHtml(p.points)} pts` +
+                    `${p.acRate ? ' &middot; ' + escapeHtml(p.acRate) + ' AC' : ''}</div>`;
+                row.addEventListener('click', () => VnoiUI.openProblem(p.code));
+                list.appendChild(row);
+            });
         });
-        App.logAppend('vnoi', `Loaded ${r.list.length} problems${search ? ' matching "' + search + '"' : ''}.\n`);
-    });
+        if (!total) list.appendChild(vel('div', 'vnoi-dim', 'No problems found.'));
+        App.logAppend('vnoi',
+            `Loaded ${total} problems${search ? ' matching "' + search + '"' : ''}` +
+            (groups.length > 1 ? ` from ${groups.length - 1} organization(s) and the public set` : '') + '.\n');
+    }, 'vnoi-problem-list');
 };
 
 const escapeHtml = s => String(s == null ? '' : s)
@@ -423,7 +437,9 @@ VnoiUI.drawContests = function (search) {
         row.innerHTML =
             `<div class="vnoi-item-title">${c.key === current ? '&#9679; ' : ''}${escapeHtml(c.title)}</div>` +
             `<div class="vnoi-dim">${escapeHtml(c.time)}` +
-            (c.users ? ' &middot; ' + escapeHtml(c.users) + ' users' : '') + '</div>';
+            (c.users ? ' &middot; ' + escapeHtml(c.users) + ' users' : '') +
+            (c.private ? ' &middot; <b>private</b>' + (c.orgName ? ' (' + escapeHtml(c.orgName) + ')' : '') : '') +
+            '</div>';
         const acts = vel('div', 'vnoi-row');
         acts.appendChild(vbutton('Problems', () => VnoiUI.openContest(c.key)));
         acts.appendChild(vbutton('Ranking', () => VnoiUI.showRanking(c.key)));

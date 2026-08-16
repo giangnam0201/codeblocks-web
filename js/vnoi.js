@@ -183,7 +183,47 @@ VNOI.whoami = async function () {
     return VNOI.user;
 };
 
+/* ========================================================== organizations
+
+   The public /problems/ and /contests/ pages show public things only.  A
+   school or club keeps its own problem set and its own contests behind its
+   organization, and those are what a student actually works on - so the
+   organizations this account belongs to have to be read too.
+
+   A user's own profile page is where the judge lists them. */
+VNOI.myOrganizations = async function () {
+    if (!VNOI.loggedIn()) { VNOI.orgs = []; return VNOI.orgs; }
+    const res = await VNOI.req('/user/' + VNOI.user.name);
+    const seen = new Map();
+    res.doc.querySelectorAll('a[href^="/organization/"]').forEach(a => {
+        const m = /^\/organization\/([^/]+)\/?$/.exec(a.getAttribute('href') || '');
+        if (m) seen.set(m[1], txt(a) || m[1]);
+    });
+    VNOI.orgs = Array.from(seen, ([slug, name]) => ({ slug, name }));
+    return VNOI.orgs;
+};
+
 /* =============================================================== problems */
+
+/* Both /problems/ and /organization/<slug>/problems/ use the same table. */
+function parseProblemTable(doc, extra) {
+    const out = [];
+    doc.querySelectorAll('#problem-table tr, table.problem-table tr').forEach(tr => {
+        const code = tr.querySelector('td.problem-code a');
+        if (!code) return;
+        out.push(Object.assign({
+            code: txt(code),
+            name: txt(tr.querySelector('td.problem-name a')),
+            category: txt(tr.querySelector('td.category')),
+            points: txt(tr.querySelector('td.p, td.points')),
+            acRate: txt(tr.querySelector('.ac-rate')),
+            users: txt(tr.querySelector('.users a')),
+            solved: !!tr.querySelector('.solved-problem-color, .fa-check-circle'),
+            editorial: !!tr.querySelector('.has-editorial-color'),
+        }, extra || {}));
+    });
+    return out;
+}
 
 VNOI.problems = async function (opts) {
     opts = opts || {};
@@ -194,28 +234,49 @@ VNOI.problems = async function (opts) {
         // inside a contest the problem list lives on the contest page
         return VNOI.contestProblems(opts.contest);
     }
-    const res = await VNOI.req('/problems/' + (q.toString() ? '?' + q : ''));
-    // the list is <table id="problem-table" class="table striped">, and the
-    // header row carries the same classes on <th>, so match the cells
-    const rows = res.doc.querySelectorAll('#problem-table tr, table.problem-table tr');
-    const out = [];
-    rows.forEach(tr => {
-        const code = tr.querySelector('td.problem-code a');
-        if (!code) return;
-        out.push({
-            code: txt(code),
-            name: txt(tr.querySelector('td.problem-name a')),
-            category: txt(tr.querySelector('td.category')),
-            points: txt(tr.querySelector('td.p, td.points')),
-            acRate: txt(tr.querySelector('.ac-rate')),
-            users: txt(tr.querySelector('.users a')),
-            solved: !!tr.querySelector('.solved-problem-color, .fa-check-circle'),
-            editorial: !!tr.querySelector('.has-editorial-color'),
-        });
-    });
+    const path = opts.org
+        ? '/organization/' + opts.org + '/problems/'
+        : '/problems/';
+    const res = await VNOI.req(path + (q.toString() ? '?' + q : ''));
+    const list = parseProblemTable(res.doc, opts.org ? { org: opts.org, private: true } : null);
     // "Trang 1/128" style pager
     const pages = res.doc.querySelectorAll('.page-link, .pagination a');
-    return { list: out, hasMore: pages.length > 0 };
+    return { list, hasMore: pages.length > 0 };
+};
+
+/* The public set, the contest in progress, and every organization's own set.
+
+   The contest comes first on purpose: while a contest is running its problems
+   are the only ones that matter, and they are usually private - reachable
+   from nowhere else in the interface. */
+VNOI.allProblems = async function (search) {
+    const groups = [];
+
+    const now = VNOI.contest || (VNOI.loggedIn() ? await VNOI.currentContest() : null);
+    if (now && now.key) {
+        try {
+            const c = await VNOI.contestProblems(now.key);
+            const needle = (search || '').trim().toLowerCase();
+            const list = c.list.filter(p => !needle ||
+                (p.name || '').toLowerCase().includes(needle) ||
+                (p.code || '').toLowerCase().includes(needle));
+            if (list.length) groups.push({
+                title: now.title || now.key, contest: now.key, private: true, list,
+            });
+        } catch (e) { /* the contest may not list problems to this account */ }
+    }
+
+    const pub = await VNOI.problems({ search });
+    groups.push({ title: 'Public problems', org: null, list: pub.list });
+
+    const orgs = await VNOI.myOrganizations();
+    for (const o of orgs) {
+        try {
+            const r = await VNOI.problems({ search, org: o.slug });
+            if (r.list.length) groups.push({ title: o.name, org: o.slug, list: r.list });
+        } catch (e) { /* an organization may not expose a problem list */ }
+    }
+    return groups;
 };
 
 VNOI.problem = async function (code) {
@@ -397,19 +458,18 @@ VNOI.submissions = async function (opts) {
 
 /* =============================================================== contests */
 
-VNOI.contests = async function (search) {
-    const res = await VNOI.req('/contests/');
-    const groups = { active: [], upcoming: [], past: [] };
-    const needle = (search || '').trim().toLowerCase();
-    // the page lists them in sections; the join form tells us what we can do
-    res.doc.querySelectorAll('.contest-block').forEach(block => {
+/* Both /contests/ and /organization/<slug>/contests/ use the same blocks. */
+function parseContestPage(doc, extra) {
+    const found = [];
+    doc.querySelectorAll('.contest-block').forEach(block => {
         const a = block.querySelector('.contest-list-title');
         if (!a) return;
         const key = (a.getAttribute('href') || '').split('/').filter(Boolean).pop();
         const row = block.closest('tr');
         const joinForm = row ? row.querySelector('form[action*="/join"]') : null;
         const leaveForm = row ? row.querySelector('form[action*="/leave"]') : null;
-        const item = {
+        const section = block.closest('div[class*="contest-list"], section, .content-description');
+        found.push(Object.assign({
             key,
             title: txt(a),
             tags: Array.from(block.querySelectorAll('.contest-tag')).map(txt),
@@ -417,16 +477,61 @@ VNOI.contests = async function (search) {
             users: txt(row ? row.querySelector('a[href*="/ranking/"]') : null),
             canJoin: !!joinForm,
             joined: !!leaveForm,
-        };
-        // the search runs here: the judge's contest page has no search box
-        if (needle && !(item.title.toLowerCase().includes(needle) ||
-                        item.key.toLowerCase().includes(needle) ||
-                        item.tags.join(' ').toLowerCase().includes(needle))) return;
+            heading: section ? txt(section.querySelector('h3, h4')) : '',
+        }, extra || {}));
+    });
+    return found;
+}
 
-        const section = block.closest('div[class*="contest-list"], section, .content-description');
-        const heading = section ? txt(section.querySelector('h3, h4')) : '';
-        if (/đang diễn ra|active|ongoing/i.test(heading) || item.joined) groups.active.push(item);
-        else if (/sắp|upcoming|future/i.test(heading)) groups.upcoming.push(item);
+/* Every contest this account can see: the public list, the ones belonging to
+   its organizations, and - however it was reached - the one it is inside right
+   now.  That last one matters: a private contest appears on no list at all,
+   so without it the contest a student is actually sitting cannot be found. */
+VNOI.contests = async function (search) {
+    const groups = { active: [], upcoming: [], past: [] };
+    const needle = (search || '').trim().toLowerCase();
+    const byKey = new Map();
+
+    const add = item => {
+        if (!item.key) return;
+        const had = byKey.get(item.key);
+        if (had) {                      // keep the richer entry
+            Object.keys(item).forEach(k => { if (!had[k]) had[k] = item[k]; });
+            return;
+        }
+        byKey.set(item.key, item);
+    };
+
+    parseContestPage((await VNOI.req('/contests/')).doc).forEach(add);
+
+    for (const o of await VNOI.myOrganizations()) {
+        try {
+            const r = await VNOI.req('/organization/' + o.slug + '/contests/');
+            parseContestPage(r.doc, { org: o.slug, orgName: o.name, private: true }).forEach(add);
+        } catch (e) { /* not every organization publishes one */ }
+    }
+
+    /* The contest in progress, even if it is on no list. */
+    const now = VNOI.contest || await VNOI.currentContest();
+    if (now && now.key) {
+        add({
+            key: now.key, title: now.title || now.key, tags: [],
+            time: now.timeLeft ? 'Time left: ' + now.timeLeft : '',
+            users: '', canJoin: false, joined: true, private: !byKey.has(now.key),
+        });
+        const item = byKey.get(now.key);
+        if (item) { item.joined = true; item.canJoin = false; }
+    }
+
+    const matches = c => !needle || c.title.toLowerCase().includes(needle) ||
+                         c.key.toLowerCase().includes(needle) ||
+                         (c.tags || []).join(' ').toLowerCase().includes(needle) ||
+                         (c.orgName || '').toLowerCase().includes(needle);
+
+    byKey.forEach(item => {
+        if (!matches(item)) return;
+        if (/đang diễn ra|active|ongoing/i.test(item.heading || '') || item.joined) groups.active.push(item);
+        else if (/sắp|upcoming|future/i.test(item.heading || '')) groups.upcoming.push(item);
         else groups.past.push(item);
     });
     return groups;
