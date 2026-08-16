@@ -422,6 +422,7 @@ VnoiUI.resultWindow = function (problem, fileName, langName) {
         width: 580, height: 400, body,
         buttons: [{ label: 'Close', onClick: () => w.remove() }],
     });
+    w.classList.add('vnoi-result-window');
 
     const tbody = body.querySelector('tbody');
     const status = body.querySelector('.vnoi-result-status');

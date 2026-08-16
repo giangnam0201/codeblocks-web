@@ -986,7 +986,10 @@ button.cb.vnoi-submit-fab {
 button.cb.vnoi-submit-fab:hover { background: linear-gradient(to bottom, #59bd6d, #37974f); }
 button.cb.vnoi-submit-fab:disabled { background: #9a9a9a; border-color: #7d7d7d; }
 
-/* the judging window */
+/* the judging window.  Its body fills the window frame, and the frame's own
+   padding goes: the caption has to stay clear, or the panel covers it and the
+   window can no longer be dragged. */
+.cb-window.vnoi-result-window > .body { padding: 0; position: relative; overflow: hidden; }
 .vnoi-result { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .vnoi-result-head { flex: none; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .vnoi-result-status {
