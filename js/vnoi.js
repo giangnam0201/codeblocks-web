@@ -119,6 +119,15 @@ VNOI.csrf = function (doc, formSel) {
 
 const txt = el => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
 
+/* The problem code out of any judge URL: it is the segment after /problem/,
+   never the last one.  /problem/abc/submissions/GiangNam2014/ is a link to a
+   user's submissions for problem "abc", and reading it back to front turns the
+   username into the code. */
+function problemCodeFrom(href) {
+    const m = /\/problem\/([^/?#]+)/.exec(href || '');
+    return m ? m[1] : '';
+}
+
 /* The header's contest link carries the countdown inside it, so the clock has
    to come out before the name is readable. */
 function contestTitle(link) {
@@ -440,12 +449,12 @@ VNOI.submissions = async function (opts) {
     res.doc.querySelectorAll('.submission-row').forEach(row => {
         const link = row.querySelector('.sub-result, a[href*="/submission/"]');
         const href = link ? link.getAttribute('href') || '' : '';
+        const nameLink = row.querySelector('.name a, .sub-info a');
         out.push({
             id: (row.id || '').replace(/\D/g, '') || (href.match(/(\d+)/) || [])[1] || '',
             verdict: txt(row.querySelector('.sub-result .state, .sub-result')),
-            problem: txt(row.querySelector('.name a, .sub-info a')),
-            code: (row.querySelector('.name a, .sub-info a') || {}).getAttribute
-                ? (row.querySelector('.name a, .sub-info a').getAttribute('href') || '').split('/').filter(Boolean).pop() : '',
+            problem: txt(nameLink),
+            code: problemCodeFrom(nameLink && nameLink.getAttribute('href')),
             time: txt(row.querySelector('.time-with-rel, .time')),
             runtime: txt(row.querySelector('.time.sub-prop, .sub-prop .time')),
             memory: txt(row.querySelector('.memory')),
@@ -587,13 +596,24 @@ VNOI.leave = async function (key) {
 VNOI.contestProblems = async function (key) {
     const res = await VNOI.req('/contest/' + key);
     const out = [];
+    const seen = new Set();
     res.doc.querySelectorAll('table.contest-problems tr, .contest-problems tr').forEach(tr => {
-        const a = tr.querySelector('a[href*="/problem/"]');
-        if (!a) return;
+        /* Take the link to the problem itself, not the others in the row.
+           Once you have submitted, the row also links to your own submissions
+           at /problem/<code>/submissions/<user>/ - and picking that one made
+           the problem's name and code come out as the username, so a problem
+           you had solved could no longer be opened. */
+        const links = Array.from(tr.querySelectorAll('a[href]'));
+        const bare = links.find(a => /^\/problem\/[^/]+\/?$/.test(a.getAttribute('href') || ''));
+        const any = bare || links.find(a => /^\/problem\//.test(a.getAttribute('href') || ''));
+        if (!any) return;
+        const code = problemCodeFrom(any.getAttribute('href'));
+        if (!code || seen.has(code)) return;
+        seen.add(code);
         const cells = tr.querySelectorAll('td');
         out.push({
-            code: (a.getAttribute('href') || '').split('/').filter(Boolean).pop(),
-            name: txt(a),
+            code,
+            name: txt(bare) || code,
             points: cells.length > 1 ? txt(cells[1]) : '',
             ac: cells.length > 2 ? txt(cells[2]) : '',
         });
