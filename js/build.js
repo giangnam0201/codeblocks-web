@@ -171,7 +171,11 @@ Build.doBuild = async function (options) {
 
     if (ok) {
         Build.log(`${cc}  -o ${exe} ${objDir}${base}.o\n`);
-        Build.log(`Output file is ${exe} with size ${(built.size / 1024).toFixed(2)} KB\n`);
+        Build.log(`Output file is ${exe} with size ${(built.size / 1024).toFixed(2)} KB\n` +
+            (built.originalSize && built.originalSize > built.size
+                ? `  (${(built.originalSize / 1048576).toFixed(1)} MB of zero-filled globals were dropped: ` +
+                  'WebAssembly memory starts zeroed)\n'
+                : ''));
         Build.lastBuild = { source, exe, exeName, target, file, flags, id: built.id };
         // let the Files panel show what the build produced
         Toolchain.listFiles().then(r => {

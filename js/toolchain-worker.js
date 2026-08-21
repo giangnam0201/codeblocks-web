@@ -359,6 +359,125 @@ function bigGlobalNote(source, failed) {
     return text;
 }
 
+/* ------------------------------------------------ dropping zero-filled data
+
+   LLVM 8's WebAssembly backend has no .bss, so a zero-initialised global is
+   linked in as a data segment full of zero bytes: "long long a[10000001]" is
+   an 80 MB executable made almost entirely of nothing.
+
+   WebAssembly memory starts zeroed by definition, so a segment whose every
+   byte is zero writes nothing that is not already there, and removing it
+   leaves a program that behaves identically.  That is what this does: parse
+   the module, drop the all-zero data segments, and re-emit.  The memory
+   section is untouched, so the address space the program expects is unchanged
+   - only the zeros that were being carried around go. */
+
+function leb(bytes, at) {                 // varuint32 -> {value, next}
+    let result = 0, shift = 0, i = at, b;
+    do {
+        b = bytes[i++];
+        result |= (b & 0x7f) << shift;
+        shift += 7;
+    } while (b & 0x80);
+    return { value: result >>> 0, next: i };
+}
+
+function writeLeb(value) {
+    const out = [];
+    let v = value >>> 0;
+    do {
+        let b = v & 0x7f;
+        v >>>= 7;
+        if (v) b |= 0x80;
+        out.push(b);
+    } while (v);
+    return out;
+}
+
+function allZero(bytes, from, to) {
+    for (let i = from; i < to; i++) if (bytes[i] !== 0) return false;
+    return true;
+}
+
+/* Returns {bytes, dropped, keptSegments} - or null when there was nothing
+   worth doing, so the caller can keep the original buffer. */
+function stripZeroData(input) {
+    const b = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (b.length < 8 || b[0] !== 0x00 || b[1] !== 0x61 || b[2] !== 0x73 || b[3] !== 0x6d) return null;
+
+    const pieces = [b.subarray(0, 8)];          // magic + version
+    let at = 8, dropped = 0, kept = 0, changed = false;
+
+    while (at < b.length) {
+        const sectionStart = at;
+        const id = b[at++];
+        const sz = leb(b, at);
+        const payloadStart = sz.next;
+        const payloadEnd = payloadStart + sz.value;
+        if (payloadEnd > b.length) return null;   // malformed: leave it alone
+
+        if (id !== 11) {                           // not the data section
+            pieces.push(b.subarray(sectionStart, payloadEnd));
+            at = payloadEnd;
+            continue;
+        }
+
+        const count = leb(b, payloadStart);
+        let p = count.next;
+        const keepers = [];
+        for (let n = 0; n < count.value; n++) {
+            const entryStart = p;
+            const flags = leb(b, p);
+            p = flags.next;
+            if (flags.value === 2) { const m = leb(b, p); p = m.next; }
+            if (flags.value !== 1) {                // active: skip the offset expression
+                while (b[p] !== 0x0b) {             // up to and including "end"
+                    p++;
+                    if (p >= payloadEnd) return null;
+                }
+                p++;
+            }
+            const len = leb(b, p);
+            const dataStart = len.next;
+            const dataEnd = dataStart + len.value;
+            if (dataEnd > payloadEnd) return null;
+            p = dataEnd;
+
+            if (len.value > 0 && allZero(b, dataStart, dataEnd)) {
+                dropped += len.value;
+                changed = true;
+            } else {
+                keepers.push(b.subarray(entryStart, dataEnd));
+                kept++;
+            }
+        }
+
+        const body = [].concat(writeLeb(keepers.length));
+        const payload = new Uint8Array(body.length + keepers.reduce((s, k) => s + k.length, 0));
+        payload.set(body, 0);
+        let o = body.length;
+        keepers.forEach(k => { payload.set(k, o); o += k.length; });
+
+        if (keepers.length === 0) {
+            // an empty data section is legal, and cheaper than dropping the id
+            const header = new Uint8Array([11].concat(writeLeb(payload.length)));
+            pieces.push(header, payload);
+        } else {
+            const header = new Uint8Array([11].concat(writeLeb(payload.length)));
+            pieces.push(header, payload);
+        }
+        at = payloadEnd;
+    }
+
+    if (!changed) return null;
+
+    const total = pieces.reduce((s, p) => s + p.length, 0);
+    const out = new Uint8Array(total);
+    let o = 0;
+    pieces.forEach(p => { out.set(p, o); o += p.length; });
+    return { bytes: out, dropped, keptSegments: kept };
+}
+
 /* The libc++ include path is a C++ thing: its <stdio.h> and friends wrap the
    C ones with C++ declarations, so a C translation unit must not see it. */
 function baseArgs(isC) {
@@ -424,11 +543,41 @@ async function build(fileName, source, options) {
         if (memoryDeath(l.text)) diagnostics = bigGlobalNote(source, true) + diagnostics;
         return { ok: false, diagnostics };
     }
-    // it linked, but a program dragging tens of megabytes of zeros deserves a word
+    let buffer = api.memfs.getFileContents(out);
+    const linkedSize = buffer.length;
+
+    /* Zero-filled globals ride in the executable as real zero bytes, and
+       WebAssembly memory starts zeroed anyway, so those segments say nothing.
+       Dropping them is what keeps "long long a[10000001]" from being an 80 MB
+       module - and it is the same program afterwards. */
+    let trimmed = null;
+    if (linkedSize > 1024 * 1024) {
+        try { trimmed = stripZeroData(buffer); } catch (e) { trimmed = null; }
+    }
+    if (trimmed) {
+        try {
+            const slim = await WebAssembly.compile(trimmed.bytes);
+            api.memfs.addFile(out, trimmed.bytes);      // so the Files panel agrees
+            const slimId = nextModuleId++;
+            modules.set(slimId, slim);
+            noteFile(fileName, 'source');
+            noteFile(obj, 'object');
+            noteFile(out, 'executable');
+            diagnostics = (diagnostics ? diagnostics + '\n' : '') +
+                'note: dropped ' + mb(trimmed.dropped) + ' of zero-filled globals from the\n' +
+                '      executable (' + mb(linkedSize) + ' -> ' + mb(trimmed.bytes.length) + '). ' +
+                'WebAssembly memory starts\n      zeroed, so the program is unchanged.\n';
+            return { ok: true, diagnostics, id: slimId,
+                     size: trimmed.bytes.length, originalSize: linkedSize };
+        } catch (e) {
+            buffer = api.memfs.getFileContents(out);    // keep the original, say nothing
+        }
+    }
+
+    // nothing could be dropped, so huge globals still get their warning
     const note = bigGlobalNote(source, false);
     if (note) diagnostics = (diagnostics ? diagnostics + '\n' : '') + note;
 
-    const buffer = api.memfs.getFileContents(out);
     const module = await WebAssembly.compile(buffer);
     const id = nextModuleId++;
     modules.set(id, module);
