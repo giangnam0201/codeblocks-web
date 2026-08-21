@@ -34,7 +34,10 @@ const Toolchain = {
 
 Toolchain.start = function () {
     if (Toolchain.worker) return Toolchain.worker;
-    const w = new Worker('js/toolchain-worker.js');
+    /* The worker script is cached far harder than the page: a plain reload can
+       leave an old compiler running behind a new IDE.  The stamp changes with
+       each deployment, so the two always match. */
+    const w = new Worker('js/toolchain-worker.js?v=' + (window.CBWEB_BUILD || '1'));
     w.onmessage = ev => {
         const msg = ev.data;
         if (msg.type === 'progress') {

@@ -108,7 +108,11 @@ class Memory {
   }
 
   check() {
-    if (this.buffer.byteLength === 0) {
+    // cbweb: growing the memory can either detach the old buffer (byteLength
+    // drops to 0) or hand back a different one; comparing identity catches
+    // both, where the original detach-only test missed the second and left
+    // stale views behind.
+    if (this.buffer.byteLength === 0 || this.buffer !== this.memory.buffer) {
       this.buffer = this.memory.buffer;
       this.u8 = new Uint8Array(this.buffer);
       this.u32 = new Uint32Array(this.buffer);

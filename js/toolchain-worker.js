@@ -290,6 +290,75 @@ function cleanDiagnostics(text) {
     return notes.length ? cleaned.replace(/\n*$/, '\n') + notes.join('\n') + '\n' : cleaned;
 }
 
+/* ------------------------------------------------- big global arrays
+
+   LLVM 8's WebAssembly backend has no .bss: a zero-initialised global array is
+   written into the object and into the executable as actual zero bytes.  So
+   `long long a[10000001]` is not free at all - it is an 80 MB binary that has
+   to be copied through the in-page filesystem.  Chrome manages it (slowly);
+   Firefox refuses the copy outright with "invalid or out-of-range index".
+
+   Neither is a message anyone can act on, so the sizes are worked out from the
+   source and reported plainly. */
+const TYPE_BYTES = {
+    char: 1, bool: 1, short: 2, int: 4, float: 4, long: 8, double: 8,
+    'long long': 8, 'long double': 8, size_t: 4, unsigned: 4,
+};
+
+function bigGlobals(source) {
+    const out = [];
+    /* Declarations come as lists - "long long i,n,k,d,a[10000001],dem=0;" - so
+       the statement is matched first and its declarators split afterwards. */
+    const stmt = /^[ 	]*(?:static\s+|const\s+)*((?:unsigned\s+|signed\s+)?(?:long\s+long|long\s+double|long|int|short|char|bool|float|double|size_t))\s+([^;{}()]+);/gm;
+    let m;
+    while ((m = stmt.exec(source)) !== null) {
+        const type = m[1].replace(/\s+/g, ' ').trim();
+        const unit = TYPE_BYTES[type] || TYPE_BYTES[type.replace(/^(unsigned|signed) /, '')] || 4;
+        // brace depth decides whether this is a global or a local
+        const before = source.slice(0, m.index);
+        const depth = (before.match(/{/g) || []).length - (before.match(/}/g) || []).length;
+        m[2].split(',').forEach(decl => {
+            const d = /([A-Za-z_]\w*)\s*((?:\[\s*\d[\d'_]*\s*\])+)/.exec(decl);
+            if (!d) return;
+            let count = 1;
+            d[2].replace(/\d[\d'_]*/g, n => { count *= parseInt(n.replace(/['_]/g, ''), 10); return n; });
+            const bytes = count * unit;
+            if (bytes >= 8 * 1024 * 1024) out.push({ name: d[1], type, count, bytes, global: depth <= 0 });
+        });
+    }
+    return out;
+}
+
+const mb = n => (n / (1024 * 1024)).toFixed(1) + ' MB';
+
+function bigGlobalNote(source, failed) {
+    const big = bigGlobals(source);
+    if (!big.length) return '';
+    const globals = big.filter(g => g.global);
+    const locals = big.filter(g => !g.global);
+    const total = globals.reduce((sum, g) => sum + g.bytes, 0);
+    const list = big.map(g =>
+        '  ' + g.type + ' ' + g.name + '[' + g.count + ']  -  ' + mb(g.bytes) +
+        (g.global ? '' : '  (inside a function)')).join('\n');
+
+    let text = failed
+        ? 'error: the compiler ran out of room building this program.\n'
+        : 'warning: this program carries very large arrays.\n';
+    text += list + '\n';
+    if (globals.length) {
+        text += 'note: this toolchain has no .bss - a zero-filled global is written into\n' +
+                '      the executable as real bytes, so these add ' + mb(total) + ' to it.\n' +
+                '      Firefox refuses a copy that large; Chrome accepts it, but the build\n' +
+                '      and the run are slow.\n';
+    }
+    if (locals.length) {
+        text += 'note: an array that size inside a function overflows the 1 MB stack.\n';
+    }
+    text += 'note: allocate it at run time instead - static std::vector<long long> a(n); -\n' +
+            '      or size the array to what the program actually uses.\n';
+    return text;
+}
+
 /* The libc++ include path is a C++ thing: its <stdio.h> and friends wrap the
    C ones with C++ declarations, so a C translation unit must not see it. */
 function baseArgs(isC) {
@@ -324,8 +393,17 @@ async function build(fileName, source, options) {
     for (const d of (options.defines || [])) args.push('-D' + d);
     for (const inc of (options.includes || [])) args.push('-I', inc);
     args.push('-o', obj, '-x', isC ? 'c' : 'c++', fileName);
+    /* A build that dies inside the runtime instead of in the compiler prints a
+       WebAssembly stack; when the source carries huge globals, that is why. */
+    const memoryDeath = t => /invalid or out-of-range index|out of memory|RangeError|allocation failed/i.test(t || '');
+
     const c = await capture(() => api.run(clang, 'clang', '-cc1', ...args));
-    if (c.exit !== 0) return { ok: false, diagnostics: cleanDiagnostics(c.text) };
+    if (c.exit !== 0) {
+        const text = cleanDiagnostics(c.text);
+        const trace = c.text + ' ' + ((c.error && c.error.message) || '');
+        return { ok: false,
+                 diagnostics: memoryDeath(trace) ? bigGlobalNote(source, true) + text : text };
+    }
 
     const libdir = 'lib/wasm32-wasi';
     const rtdir = 'lib/clang/8.0.1/lib/wasi';
@@ -340,9 +418,15 @@ async function build(fileName, source, options) {
         `${libdir}/crt1.o`, obj,
         '-lc', '-lc++', '-lc++abi', '-lcanvas', '-lclang_rt.builtins-wasm32',
         '-o', out));
-    const diagnostics = [cleanDiagnostics(c.text), cleanDiagnostics(l.text)]
+    let diagnostics = [cleanDiagnostics(c.text), cleanDiagnostics(l.text)]
         .filter(t => t.trim()).join('\n');
-    if (l.exit !== 0) return { ok: false, diagnostics };
+    if (l.exit !== 0) {
+        if (memoryDeath(l.text)) diagnostics = bigGlobalNote(source, true) + diagnostics;
+        return { ok: false, diagnostics };
+    }
+    // it linked, but a program dragging tens of megabytes of zeros deserves a word
+    const note = bigGlobalNote(source, false);
+    if (note) diagnostics = (diagnostics ? diagnostics + '\n' : '') + note;
 
     const buffer = api.memfs.getFileContents(out);
     const module = await WebAssembly.compile(buffer);

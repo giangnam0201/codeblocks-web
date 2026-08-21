@@ -119,6 +119,11 @@
 
 <!-- The compiler itself is loaded by js/toolchain-worker.js, on its own
      thread, so that building never blocks the interface. -->
+<script>
+/* Bumped on every deployment; the compiler worker is cached separately
+   from the page and needs the stamp to stay in step with it. */
+window.CBWEB_BUILD = "20260816a";
+</script>
 <script src="js/menudata.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/files.js"></script>
