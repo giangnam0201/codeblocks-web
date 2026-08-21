@@ -108,15 +108,45 @@ class Memory {
   }
 
   check() {
-    // cbweb: growing the memory can either detach the old buffer (byteLength
-    // drops to 0) or hand back a different one; comparing identity catches
-    // both, where the original detach-only test missed the second and left
-    // stale views behind.
-    if (this.buffer.byteLength === 0 || this.buffer !== this.memory.buffer) {
+    // cbweb: engines disagree about what memory.grow() does to the old buffer.
+    // Chrome detaches it (byteLength 0), which is all the original test looked
+    // for; Firefox hands back a different ArrayBuffer while the old one stays
+    // alive at its old length, so the cached views kept pointing at a memory
+    // that was too small and every copy past that point threw "invalid or
+    // out-of-range index".  Identity and length are both checked now.
+    if (this.buffer.byteLength === 0 ||
+        this.buffer !== this.memory.buffer ||
+        this.buffer.byteLength !== this.memory.buffer.byteLength) {
       this.buffer = this.memory.buffer;
       this.u8 = new Uint8Array(this.buffer);
       this.u32 = new Uint32Array(this.buffer);
     }
+  }
+
+  // cbweb: a view over the live buffer, never over a cached one.
+  view(offset, size) {
+    this.check();
+    const buffer = this.memory.buffer;
+    if (offset < 0 || size < 0 || offset + size > buffer.byteLength) {
+      throw new RangeError(
+          `cbweb: bytes ${offset}..${offset + size} requested from a ` +
+          `${buffer.byteLength} byte memory`);
+    }
+    return new Uint8Array(buffer, offset, size);
+  }
+
+  // cbweb: same, for a destination - if the range runs past the end, the
+  // memory is grown to hold it first.  That is what the module itself
+  // intended when it handed out the pointer.
+  fitView(offset, size) {
+    this.check();
+    const need = offset + size;
+    if (need > this.memory.buffer.byteLength) {
+      const pages = Math.ceil((need - this.memory.buffer.byteLength) / 65536);
+      try { this.memory.grow(pages); } catch (e) { /* reported by view() */ }
+      this.check();
+    }
+    return this.view(offset, size);
   }
 
   read8(o) { return this.u8[o]; }
@@ -142,7 +172,7 @@ class Memory {
     } else if (typeof buf === 'string') {
       return this.write(o, buf.split('').map(x => x.charCodeAt(0)));
     } else {
-      const dst = new Uint8Array(this.buffer, o, buf.length);
+      const dst = this.fitView(o, buf.length);   // cbweb: live buffer
       dst.set(buf);
       return buf.length;
     }
@@ -205,7 +235,7 @@ class MemFS {
     const inode = this.exports.FindNode(path.length);
     const addr = this.exports.GetFileNodeAddress(inode);
     const size = this.exports.GetFileNodeSize(inode);
-    return new Uint8Array(this.mem.buffer, addr, size);
+    return this.mem.view(addr, size);            // cbweb: live buffer
   }
 
   abort() { throw new AbortError(); }
@@ -267,19 +297,19 @@ class MemFS {
   }
 
   copy_out(clang_dst, memfs_src, size) {
-    this.hostMem_.check();
-    const dst = new Uint8Array(this.hostMem_.buffer, clang_dst, size);
-    this.mem.check();
-    const src = new Uint8Array(this.mem.buffer, memfs_src, size);
+    // cbweb: views built from the live buffers, and the destination grown if
+    // the pointer runs past the end of it
+    const dst = this.hostMem_.fitView(clang_dst, size);
+    const src = this.mem.view(memfs_src, size);
     // console.log(`copy_out(${clang_dst.toString(16)}, ${memfs_src.toString(16)}, ${size})`);
     dst.set(src);
   }
 
   copy_in(memfs_dst, clang_src, size) {
-    this.mem.check();
-    const dst = new Uint8Array(this.mem.buffer, memfs_dst, size);
-    this.hostMem_.check();
-    const src = new Uint8Array(this.hostMem_.buffer, clang_src, size);
+    // cbweb: as copy_out - this is the one that used to throw in Firefox when
+    // clang wrote a large object file into memfs
+    const dst = this.mem.fitView(memfs_dst, size);
+    const src = this.hostMem_.view(clang_src, size);
     // console.log(`copy_in(${memfs_dst.toString(16)}, ${clang_src.toString(16)}, ${size})`);
     dst.set(src);
   }
@@ -452,7 +482,7 @@ class App {
   }
 
   random_get(buf, buf_len) {
-    const data = new Uint8Array(this.mem.buffer, buf, buf_len);
+    const data = this.mem.view(buf, buf_len);    // cbweb: live buffer
     for (let i = 0; i < buf_len; ++i) {
       data[i] = (Math.random() * 256) | 0;
     }
@@ -464,7 +494,8 @@ class App {
     this.mem.check();
     const ms = clock_id === 0 ? Date.now() : performance.now();
     const ns = BigInt(Math.round(ms * 1e6));
-    const view = new DataView(this.mem.buffer);
+    this.mem.check();                            // cbweb: live buffer
+    const view = new DataView(this.mem.memory.buffer);
     view.setBigUint64(time_out, ns, true);
     return ESUCCESS;
   }
@@ -472,7 +503,8 @@ class App {
   // cbweb: required by clock_getres(), which libc++ calls for steady_clock.
   clock_res_get(clock_id, res_out) {
     this.mem.check();
-    new DataView(this.mem.buffer).setBigUint64(res_out, BigInt(1000), true);
+    this.mem.check();                            // cbweb: live buffer
+    new DataView(this.mem.memory.buffer).setBigUint64(res_out, BigInt(1000), true);
     return ESUCCESS;
   }
 
@@ -519,7 +551,7 @@ class App {
     const imageData = this.handles.get(handle);
     if (imageData) {
       this.mem.check();
-      const src = new Uint8Array(this.mem.buffer, buffer, size);
+      const src = this.mem.view(buffer, size);   // cbweb: live buffer
       imageData.data.set(src, offset);
     }
   }
