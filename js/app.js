@@ -202,7 +202,7 @@ App.closeFile = async function (file) {
             `File ${file.name} is modified...\nDo you want to save the changes?`,
             'Save file', ['Yes', 'No', 'Cancel'], '❓');
         if (a === 'Cancel' || a === null) return false;
-        if (a === 'Yes') App.saveFile(file);
+        if (a === 'Yes' && !await App.saveFile(file)) return false;
     }
     App.nbEditors.removePage(file.key);
     App.files = App.files.filter(f => f !== file);
@@ -1024,7 +1024,15 @@ App.incrementalSearch = function (c) {
     }
     if (!cm || !st.text) { App.clearIncHighlight(); return; }
 
-    const query = st.regex ? new RegExp(st.text, st.matchCase ? 'g' : 'gi') : st.text;
+    let query = st.text;
+    if (st.regex) {
+        try {
+            query = new RegExp(st.text, st.matchCase ? 'g' : 'gi');
+        } catch (e) {
+            UI.setStatus(0, 'Incomplete regular expression: ' + e.message);
+            return;
+        }
+    }
     const back = c.id === 'idIncSearchPrev';
     const from = back ? cm.getCursor('from') : cm.getCursor('to');
     let cursor = cm.getSearchCursor(query, from, !st.matchCase);
@@ -1537,8 +1545,8 @@ Dialogs.projectProperties = function () {
     const body = document.createElement('div');
     body.innerHTML = `
       <table style="border-spacing:6px">
-        <tr><td>Project title:</td><td><input class="cb" id="pp-title" value="${p ? p.name : ''}" style="width:240px"></td></tr>
-        <tr><td>Filename:</td><td>${App.projectPath}\\${p ? p.name : 'project'}.cbp</td></tr>
+        <tr><td>Project title:</td><td><input class="cb" id="pp-title" value="${UI.escapeHtml(p ? p.name : '')}" style="width:240px"></td></tr>
+        <tr><td>Filename:</td><td>${UI.escapeHtml(App.projectPath)}\\${UI.escapeHtml(p ? p.name : 'project')}.cbp</td></tr>
         <tr><td>Platforms:</td><td>All</td></tr>
         <tr><td>Makefile:</td><td>Makefile</td></tr>
       </table>`;
@@ -2385,8 +2393,14 @@ function init() {
         if (es) Object.assign(App.editorSettings, es);
         const bs = JSON.parse(localStorage.getItem('cbweb.build') || 'null');
         if (bs) Object.assign(App.buildOptions, bs);
+        const ev = JSON.parse(localStorage.getItem('cbweb.env') || 'null');
+        if (ev) Object.assign(App.environment, ev);
+        const pl = JSON.parse(localStorage.getItem('cbweb.plugins') || 'null');
+        if (pl) Object.assign(App.pluginState, pl);
     } catch (e) { /* defaults are fine */ }
     Features.applyEditorSettings();
+    App.highlightOccurrencesOn = !!App.pluginState['Occurrences highlighting'];
+    App.applyEnvironment();
 
     App.setTarget('Debug');
     App.updateStatusBar();

@@ -84,7 +84,7 @@ Build.doBuild = async function (options) {
         await UI.messageBox('You need to open a source file first.', 'Code::Blocks', ['OK'], '⚠️');
         return false;
     }
-    App.saveAll(true);
+    await App.saveAll(true);
 
     const target = App.activeTarget;
     const project = App.activeProject;
@@ -259,21 +259,29 @@ Build.launch = async function (built, debug) {
     const started = performance.now();
     let exitCode = 0;
 
-    if (debug) {
-        // stepping needs the statement-level engine
-        exitCode = await Build.runStepping(built, con, proc, debug);
-    } else {
-        exitCode = await Toolchain.runInteractive(built, con,
-                                                  { isAborted: () => proc.abort });
-        if (proc.abort) exitCode = -1073741510;
-    }
+    /* Whatever happens in the program - including a crash in the runner - the
+       IDE has to come back, or every later Run reports "already running". */
+    try {
+        if (debug) {
+            // stepping needs the statement-level engine
+            exitCode = await Build.runStepping(built, con, proc, debug);
+        } else {
+            exitCode = await Toolchain.runInteractive(built, con,
+                                                      { isAborted: () => proc.abort });
+            if (proc.abort) exitCode = -1073741510;
+        }
 
-    const secs = (performance.now() - started) / 1000;
-    if (debug) debug.finished(exitCode, secs);
-    if (!con.closed) await con.finish(exitCode, secs);
-    Build.process = null;
-    UI.enableTool('idCompilerMenuKillProcess', false);
-    App.updateStatusBar();
+        const secs = (performance.now() - started) / 1000;
+        if (debug) debug.finished(exitCode, secs);
+        if (!con.closed) await con.finish(exitCode, secs);
+    } catch (e) {
+        con.write('\nThe program could not be run: ' + e.message + '\n');
+        if (!con.closed) con.close();
+    } finally {
+        Build.process = null;
+        UI.enableTool('idCompilerMenuKillProcess', false);
+        App.updateStatusBar();
+    }
 };
 
 /* The statement-stepping engine, used only while debugging.  clang gives us a

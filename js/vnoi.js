@@ -418,10 +418,18 @@ VNOI.submission = async function (id) {
 /* Polls until the judge is finished, reporting each new test as it lands. */
 VNOI.watch = async function (id, onUpdate) {
     let seen = 0;
+    let failures = 0;
     for (let i = 0; i < 600; i++) {
         let s;
-        try { s = await VNOI.submission(id); }
-        catch (e) { await sleep(1000); continue; }
+        /* A poll can miss once - the relay hiccups, the page is still being
+           written.  Failing over and over means the submission is not coming
+           back, and ten minutes of silent retries would hide that. */
+        try { s = await VNOI.submission(id); failures = 0; }
+        catch (e) {
+            if (++failures >= 5) throw e;
+            await sleep(1000);
+            continue;
+        }
         if (s.cases.length > seen) {
             onUpdate({ type: 'cases', cases: s.cases.slice(seen) });
             seen = s.cases.length;
