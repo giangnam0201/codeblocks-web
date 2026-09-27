@@ -28,6 +28,7 @@ const Toolchain = {
     loaded: false,
     onStatus: null,
     maxRounds: 500,
+    buildTimeoutMs: 30000,
     pending: new Map(),
     nextId: 1,
 };
@@ -105,28 +106,69 @@ Toolchain.reset = function (reason) {
     Toolchain.loaded = false;
 };
 
-/* Compiles and links one translation unit.  If a long synchronous wasm call
-   wedges the worker, reload the toolchain once and retry instead of leaving
-   Build stuck forever.  This is the safe static-hosting fallback available on
-   GitHub Pages; no source code is uploaded to a third-party compiler. */
+/* Online providers are a last resort for static hosting.  The local clang
+   build remains the normal path; only a watchdog timeout reaches the network.
+   Both providers return diagnostics, not a runnable local executable. */
+Toolchain.onlineBuild = async function (fileName, source, options) {
+    const opts = options || {};
+    const compiler = /\\.c$/i.test(fileName) ? 'gcc-head' : 'gcc-head';
+    const flags = [`-std=${opts.std || 'c++17'}`, opts.opt || '-O0', ...(opts.defines || []).map(d => `-D${d}`)];
+    const body = { compiler, code: source, options: flags, stdin: '' };
+    const providers = [
+        { name: 'Wandbox', url: 'https://wandbox.org/api/compile.json' },
+        { name: 'Godbolt', url: 'https://godbolt.org/api/compiler/g122/compile' },
+    ];
+    let lastError = null;
+    for (const provider of providers) {
+        try {
+            const response = await fetch(provider.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!response.ok) throw new Error(`${provider.name} HTTP ${response.status}`);
+            const result = await response.json();
+            const diagnostics = [result.compiler_error, result.stdout, result.stderr,
+                result.output, result.asm].filter(Boolean).join('\\n');
+            return {
+                ok: !result.compiler_error && !(result.stderr || '').match(/error:/i),
+                diagnostics: diagnostics || `${provider.name} returned no compiler output.`,
+                fallback: provider.name,
+                onlineOnly: true,
+                size: 0,
+            };
+        } catch (error) { lastError = error; }
+    }
+    throw new Error(`online compiler fallback unavailable (${lastError ? lastError.message : 'network error'})`);
+};
+
+/* Compiles and links one translation unit locally.  A generous watchdog lets
+   template-heavy programs such as 10^8 loops finish in the browser; if a
+   synchronous WASM call still wedges, retry once with a fresh worker, then
+   use the explicit online fallback. */
 Toolchain.build = async function (fileName, source, options) {
     const payload = { file: fileName, source, options: options || {} };
     let timer;
     const attempt = () => new Promise((resolve, reject) => {
         timer = setTimeout(() => {
             timer = null;
-            Toolchain.reset('compiler timed out after 10 seconds');
-            reject(new Error('compiler timed out after 10 seconds; reloading the local compiler'));
-        }, 10000);
+            Toolchain.reset(`compiler timed out after ${Toolchain.buildTimeoutMs / 1000} seconds`);
+            reject(new Error(`compiler timed out after ${Toolchain.buildTimeoutMs / 1000} seconds`));
+        }, Toolchain.buildTimeoutMs);
         Toolchain.call('build', payload).then(resolve, reject);
     }).finally(() => { if (timer) clearTimeout(timer); });
 
     try {
         return await attempt();
     } catch (error) {
-        if (!/timed out after 10 seconds/.test(error.message)) throw error;
-        await Toolchain.preload(Toolchain.onStatus);
-        return Toolchain.call('build', payload);
+        if (!/timed out after/.test(error.message)) throw error;
+        try {
+            await Toolchain.preload(Toolchain.onStatus);
+            return await attempt();
+        } catch (retryError) {
+            if (!/timed out after/.test(retryError.message)) throw retryError;
+            return Toolchain.onlineBuild(fileName, source, options);
+        }
     }
 };
 
