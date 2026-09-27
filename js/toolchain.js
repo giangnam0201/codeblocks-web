@@ -91,10 +91,43 @@ Toolchain.preload = function (onStatus) {
     return Toolchain.warmed;
 };
 
-/* Compiles and links one translation unit.
-   Returns {ok, diagnostics, id, size}; `id` names the executable. */
-Toolchain.build = function (fileName, source, options) {
-    return Toolchain.call('build', { file: fileName, source, options: options || {} });
+/* Drop a wedged worker so a later build cannot wait forever on a synchronous
+   WebAssembly call.  A fresh worker gets a clean compiler memory space. */
+Toolchain.reset = function (reason) {
+    const w = Toolchain.worker;
+    if (!w) return;
+    for (const [, p] of Toolchain.pending) p.reject(new Error(reason || 'compiler worker reset'));
+    Toolchain.pending.clear();
+    w.terminate();
+    Toolchain.worker = null;
+    Toolchain.warmed = null;
+    Toolchain.warm = false;
+    Toolchain.loaded = false;
+};
+
+/* Compiles and links one translation unit.  If a long synchronous wasm call
+   wedges the worker, reload the toolchain once and retry instead of leaving
+   Build stuck forever.  This is the safe static-hosting fallback available on
+   GitHub Pages; no source code is uploaded to a third-party compiler. */
+Toolchain.build = async function (fileName, source, options) {
+    const payload = { file: fileName, source, options: options || {} };
+    let timer;
+    const attempt = () => new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+            timer = null;
+            Toolchain.reset('compiler timed out after 10 seconds');
+            reject(new Error('compiler timed out after 10 seconds; reloading the local compiler'));
+        }, 10000);
+        Toolchain.call('build', payload).then(resolve, reject);
+    }).finally(() => { if (timer) clearTimeout(timer); });
+
+    try {
+        return await attempt();
+    } catch (error) {
+        if (!/timed out after 10 seconds/.test(error.message)) throw error;
+        await Toolchain.preload(Toolchain.onStatus);
+        return Toolchain.call('build', payload);
+    }
 };
 
 /* One execution with a fixed stdin.  `stopOnInput` makes the program stop as
