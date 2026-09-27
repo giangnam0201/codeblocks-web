@@ -55,6 +55,15 @@ Toolchain.start = function () {
     w.onerror = e => {
         for (const [, p] of Toolchain.pending) p.reject(new Error(e.message || 'compiler worker failed'));
         Toolchain.pending.clear();
+        /* A dead worker never answers again, so it is dropped: the next build
+           starts a fresh one instead of waiting for a reply that cannot come. */
+        if (Toolchain.worker === w) {
+            w.terminate();
+            Toolchain.worker = null;
+            Toolchain.warmed = null;
+            Toolchain.warm = false;
+            Toolchain.loaded = false;
+        }
     };
     Toolchain.worker = w;
     return w;

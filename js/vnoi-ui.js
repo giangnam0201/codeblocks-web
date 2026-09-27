@@ -91,8 +91,8 @@ VnoiUI.drawHeader = function (bar) {
     bar.innerHTML = '';
     const who = vel('div', 'vnoi-who');
     if (VNOI.loggedIn()) {
-        who.innerHTML = '<b>' + VNOI.user.name + '</b>' +
-            (VNOI.user.points ? ' <span class="vnoi-dim">' + VNOI.user.points + '</span>' : '');
+        who.innerHTML = '<b>' + escapeHtml(VNOI.user.name) + '</b>' +
+            (VNOI.user.points ? ' <span class="vnoi-dim">' + escapeHtml(VNOI.user.points) + '</span>' : '');
         bar.appendChild(who);
         bar.appendChild(vbutton('Log out', () => VnoiUI.guard('Log out', async () => {
             await VNOI.logout();
