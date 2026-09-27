@@ -28,6 +28,7 @@ const Toolchain = {
     loaded: false,
     onStatus: null,
     maxRounds: 500,
+    buildTimeoutMs: 30000,
     pending: new Map(),
     nextId: 1,
 };
@@ -91,10 +92,84 @@ Toolchain.preload = function (onStatus) {
     return Toolchain.warmed;
 };
 
-/* Compiles and links one translation unit.
-   Returns {ok, diagnostics, id, size}; `id` names the executable. */
-Toolchain.build = function (fileName, source, options) {
-    return Toolchain.call('build', { file: fileName, source, options: options || {} });
+/* Drop a wedged worker so a later build cannot wait forever on a synchronous
+   WebAssembly call.  A fresh worker gets a clean compiler memory space. */
+Toolchain.reset = function (reason) {
+    const w = Toolchain.worker;
+    if (!w) return;
+    for (const [, p] of Toolchain.pending) p.reject(new Error(reason || 'compiler worker reset'));
+    Toolchain.pending.clear();
+    w.terminate();
+    Toolchain.worker = null;
+    Toolchain.warmed = null;
+    Toolchain.warm = false;
+    Toolchain.loaded = false;
+};
+
+/* Online providers are a last resort for static hosting.  The local clang
+   build remains the normal path; only a watchdog timeout reaches the network.
+   Both providers return diagnostics, not a runnable local executable. */
+Toolchain.onlineBuild = async function (fileName, source, options) {
+    const opts = options || {};
+    const compiler = /\\.c$/i.test(fileName) ? 'gcc-head' : 'gcc-head';
+    const flags = [`-std=${opts.std || 'c++17'}`, opts.opt || '-O0', ...(opts.defines || []).map(d => `-D${d}`)];
+    const body = { compiler, code: source, options: flags, stdin: '' };
+    const providers = [
+        { name: 'Wandbox', url: 'https://wandbox.org/api/compile.json' },
+        { name: 'Godbolt', url: 'https://godbolt.org/api/compiler/g122/compile' },
+    ];
+    let lastError = null;
+    for (const provider of providers) {
+        try {
+            const response = await fetch(provider.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!response.ok) throw new Error(`${provider.name} HTTP ${response.status}`);
+            const result = await response.json();
+            const diagnostics = [result.compiler_error, result.stdout, result.stderr,
+                result.output, result.asm].filter(Boolean).join('\\n');
+            return {
+                ok: !result.compiler_error && !(result.stderr || '').match(/error:/i),
+                diagnostics: diagnostics || `${provider.name} returned no compiler output.`,
+                fallback: provider.name,
+                onlineOnly: true,
+                size: 0,
+            };
+        } catch (error) { lastError = error; }
+    }
+    throw new Error(`online compiler fallback unavailable (${lastError ? lastError.message : 'network error'})`);
+};
+
+/* Compiles and links one translation unit locally.  A generous watchdog lets
+   template-heavy programs such as 10^8 loops finish in the browser; if a
+   synchronous WASM call still wedges, retry once with a fresh worker, then
+   use the explicit online fallback. */
+Toolchain.build = async function (fileName, source, options) {
+    const payload = { file: fileName, source, options: options || {} };
+    let timer;
+    const attempt = () => new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+            timer = null;
+            Toolchain.reset(`compiler timed out after ${Toolchain.buildTimeoutMs / 1000} seconds`);
+            reject(new Error(`compiler timed out after ${Toolchain.buildTimeoutMs / 1000} seconds`));
+        }, Toolchain.buildTimeoutMs);
+        Toolchain.call('build', payload).then(resolve, reject);
+    }).finally(() => { if (timer) clearTimeout(timer); });
+
+    try {
+        return await attempt();
+    } catch (error) {
+        if (!/timed out after/.test(error.message)) throw error;
+        try {
+            await Toolchain.preload(Toolchain.onStatus);
+            return await attempt();
+        } catch (retryError) {
+            if (!/timed out after/.test(retryError.message)) throw retryError;
+            return Toolchain.onlineBuild(fileName, source, options);
+        }
+    }
 };
 
 /* One execution with a fixed stdin.  `stopOnInput` makes the program stop as

@@ -2364,9 +2364,16 @@ function init() {
             'View -> Full screen gives the originals back.\n');
     }
     App.logAppend('debugger', 'Active debugger: GDB/CDB debugger : Default\n');
-    App.startToolchain();
+  /* Keep the initial IDE paint light on GitHub Pages: the compiler assets are
+     roughly 60 MB and are only needed when the user is ready to build. */
+  const startCompiler = () => App.startToolchain();
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(startCompiler, { timeout: 4000 });
+  } else {
+    setTimeout(startCompiler, 1500);
+  }
 
-    // adopt the settings features.js defines, then layer the saved ones on top
+  // adopt the settings features.js defines, then layer the saved ones on top
     App.editorSettings = Features.editorSettings;
     App.buildOptions = Features.buildOptions;
     try {

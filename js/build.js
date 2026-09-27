@@ -89,6 +89,7 @@ Build.doBuild = async function (options) {
     const target = App.activeTarget;
     const project = App.activeProject;
     Build.running = true;
+    Build.usedFallback = false;
     Build.startTime = Date.now();
     UI.enableTool('idCompilerMenuKillProcess', true);
     App.selectLogTab('build');
@@ -138,6 +139,11 @@ Build.doBuild = async function (options) {
             warnings: warnings.filter(w => w !== '-Wall'),
         });
         const raw = built.diagnostics || '';
+        if (built.fallback) {
+            Build.usedFallback = built.fallback;
+            Build.log(`Local compiler timed out; diagnostics requested from ${built.fallback}.\\n`, 'warn');
+            Build.log('Online fallback cannot produce a runnable local executable. Fix the reported errors, then build again locally.\\n', 'warn');
+        }
         if (raw.trim()) Build.log(raw.replace(/\n?$/, '\n'), built.ok ? 'warn' : 'err');
 
         /* The Build messages grid the desktop shows: the full path, the line,
@@ -161,8 +167,13 @@ Build.doBuild = async function (options) {
         // red boxes in the margin, on the lines the compiler named
         App.setBuildErrors(diags.filter(d => d.kind !== 'note')
                                 .map(d => ({ file: file.name, line: d.line, kind: d.kind })));
-        if (!built.ok && errorCount === 0) errorCount = 1;
-        ok = built.ok && errorCount === 0;
+        if (built.onlineOnly) {
+            errorCount = Math.max(errorCount, 1);
+            ok = false;
+        } else {
+            if (!built.ok && errorCount === 0) errorCount = 1;
+            ok = built.ok && errorCount === 0;
+        }
     } catch (e) {
         errorCount = 1;
         Build.log(`${cc}: internal error: ${e.message}\n`, 'err');
