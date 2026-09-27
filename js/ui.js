@@ -17,6 +17,13 @@ function el(tag, cls, text) {
 }
 function $(sel, root) { return (root || document).querySelector(sel); }
 function $$(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
+/* For the places that build a row of HTML from text the user wrote - a project
+   name, a to-do comment - so that an angle bracket stays an angle bracket. */
+UI.escapeHtml = function (s) {
+    return String(s === undefined || s === null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+};
 
 /* Maps the XRC stock_id strings to the SVG files shipped with Code::Blocks.
    Mirrors the cbArtProvider mappings in src/src/main.cpp. */
@@ -407,6 +414,9 @@ class Notebook {
         if (i < 0) return;
         this.pages[i].page.remove();
         this.pages.splice(i, 1);
+        // a page before the active one shifts it down; the page itself keeps
+        // the index, which now holds its right-hand neighbour
+        if (i < this.active) this.active--;
         if (this.active >= this.pages.length) this.active = this.pages.length - 1;
         this.renderTabs();
         if (this.active >= 0) this.select(this.active);
