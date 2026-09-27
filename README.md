@@ -144,6 +144,7 @@ js/sdk-headers.js          <windows.h>, <conio.h> and friends for the sysroot
 js/cpp.js                  stepping interpreter, used by the debugger
 tools/gen-menus.js         XRC -> js/menudata.js
 tools/test-cpp.js          tests for the stepping interpreter
+tools/test-notebook.js     tests for the notebook's tab bookkeeping
 ```
 
 Licence: the Code::Blocks resources are GPL-3.0 (as in this repository);

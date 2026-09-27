@@ -450,7 +450,8 @@ Features.showTodo = function () {
     } else {
         rows.forEach(r => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${r.type}</td><td>${r.file.name}</td><td>${r.line}</td><td>${r.text}</td>`;
+            tr.innerHTML = `<td>${UI.escapeHtml(r.type)}</td><td>${UI.escapeHtml(r.file.name)}</td>` +
+                           `<td>${r.line}</td><td>${UI.escapeHtml(r.text)}</td>`;
             tr.addEventListener('dblclick', () => {
                 App.nbEditors.select(r.file.key);
                 App.gotoLine(r.line);
@@ -498,7 +499,7 @@ Features.codeStatistics = function () {
       <table class="log-grid" style="margin-bottom:10px">
         <thead><tr><th>File</th><th>Code</th><th>Comments</th><th>Empty</th><th>Total</th></tr></thead>
         <tbody>${perFile.map(f =>
-            `<tr><td>${f.name}</td><td>${f.code}</td><td>${f.comments}</td><td>${f.empty}</td><td>${f.total}</td></tr>`).join('')}
+            `<tr><td>${UI.escapeHtml(f.name)}</td><td>${f.code}</td><td>${f.comments}</td><td>${f.empty}</td><td>${f.total}</td></tr>`).join('')}
         </tbody>
       </table>
       <table style="border-spacing:6px">
@@ -1232,9 +1233,19 @@ Features.findDialog = function (replaceMode) {
     t.addEventListener('keydown', ev => { if (ev.key === 'Enter') { read(); Features.doFind(); } });
 };
 
+/* Returns null - after saying why in the status bar - when the user asked for
+   a regular expression that does not compile; typing one is normal while the
+   expression is still half written, and it must not break Find. */
 Features.searchQuery = function () {
     const s = Features.findState;
-    if (s.regex) return new RegExp(s.term, s.matchCase ? '' : 'i');
+    if (s.regex) {
+        try {
+            return new RegExp(s.term, s.matchCase ? '' : 'i');
+        } catch (e) {
+            UI.setStatus(0, 'Invalid regular expression: ' + e.message);
+            return null;
+        }
+    }
     if (s.wholeWord) {
         const esc = s.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         return new RegExp('\\b' + esc + '\\b', s.matchCase ? '' : 'i');
@@ -1249,6 +1260,7 @@ Features.doFind = function () {
     if (!cm || !s.term) return;
     const back = s.direction === 'up';
     const query = Features.searchQuery();
+    if (query === null) return;
     const from = back ? cm.getCursor('from') : cm.getCursor('to');
     let cur = cm.getSearchCursor(query, from, !s.matchCase);
     if (!(back ? cur.findPrevious() : cur.findNext())) {
@@ -1267,10 +1279,12 @@ Features.doFind = function () {
 Features.doFindAll = function () {
     const s = Features.findState;
     if (!s.term) return;
+    const query = Features.searchQuery();
+    if (query === null) return;
     const files = s.scope === 'open' ? App.files : [App.activeFile()].filter(Boolean);
     const rows = [];
     files.forEach(f => {
-        const query = Features.searchQuery();
+        if (!f.cm) return;
         const cur = f.cm.getSearchCursor(query, { line: 0, ch: 0 }, !s.matchCase);
         while (cur.findNext())
             rows.push({ file: f, line: cur.from().line + 1, text: f.cm.getLine(cur.from().line).trim() });
@@ -1283,13 +1297,17 @@ Features.doReplace = function (all) {
     const s = Features.findState;
     if (!cm || !s.term) return;
     const query = Features.searchQuery();
+    if (query === null) return;
     if (!all) {
         if (cm.somethingSelected()) {
             const sel = cm.getSelection();
-            const hit = s.regex || !s.matchCase
-                ? new RegExp('^(?:' + (s.regex ? s.term : s.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) + ')$',
-                             s.matchCase ? '' : 'i').test(sel)
-                : sel === s.term;
+            let hit = false;
+            try {
+                hit = s.regex || !s.matchCase
+                    ? new RegExp('^(?:' + (s.regex ? s.term : s.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) + ')$',
+                                 s.matchCase ? '' : 'i').test(sel)
+                    : sel === s.term;
+            } catch (e) { hit = false; }
             if (hit) cm.replaceSelection(s.replace, 'around');
         }
         Features.doFind();
@@ -1298,6 +1316,7 @@ Features.doReplace = function (all) {
     const files = s.scope === 'open' ? App.files : [App.activeFile()].filter(Boolean);
     let n = 0;
     files.forEach(f => {
+        if (!f.cm) return;
         const cur = f.cm.getSearchCursor(query, { line: 0, ch: 0 }, !s.matchCase);
         const edits = [];
         while (cur.findNext()) edits.push({ from: cur.from(), to: cur.to() });
@@ -1324,7 +1343,7 @@ Features.showSearchResults = function (title, rows) {
     const tb = table.querySelector('tbody');
     rows.forEach(r => {
         const tr = el('tr');
-        tr.innerHTML = `<td>${r.file.name}</td><td>${r.line}</td><td></td>`;
+        tr.innerHTML = `<td>${UI.escapeHtml(r.file.name)}</td><td>${r.line}</td><td></td>`;
         tr.lastChild.textContent = r.text;
         tr.addEventListener('click', () => {
             pane.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected'));
